@@ -19,6 +19,7 @@ dependencies = [
     "sqlalchemy>=2.0.43",
     "python-dotenv>=1.0.1",
     "dramatiq[redis,watch]>=1.18.0",
+    "alembic>=1.13.1",
 ]
 
 [build-system]
