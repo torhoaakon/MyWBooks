@@ -5,10 +5,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, HttpUrl, model_validator
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from mywbooks import models
 from mywbooks.api.auth import CurrentUser, get_or_create_user_by_sub
 from mywbooks.book import EPUB_DIR
@@ -17,6 +13,9 @@ from mywbooks.download_manager import DownlaodManager, get_dm
 from mywbooks.library import add_book_to_user
 from mywbooks.services import ingest
 from mywbooks.tasks import download_book_task
+from pydantic import BaseModel, HttpUrl, model_validator
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -37,8 +36,7 @@ class AddRoyalRoadBody(BaseModel):
         return self
 
 
-class DownloadBookMeta(BaseModel):
-    book_id: int
+class DownloadBookNowBody(BaseModel):
     chapters: Optional[list[int]]
 
     title: Optional[str]
@@ -174,13 +172,15 @@ def unsubscribe_book(
 # TODO: Here there should be some more generate config
 @router.post("/{book_id}/download")
 def download_book_now(
-    dl_meta: DownloadBookMeta, user: CurrentUser, db: Session = Depends(get_db)
+    book_id: int,
+    body: DownloadBookNowBody,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
 ) -> DownloadBookNowResponse:
     """
     Queue a download/export job and return a task id the client can poll.
     """
     local_user = get_or_create_user_by_sub(db, user)
-    book_id = dl_meta.book_id
 
     # Check that the user is subscribed
     rel = db.execute(
@@ -195,12 +195,16 @@ def download_book_now(
             status_code=403, detail="The user is not subscribed to this book."
         )
 
+    payload = {"book_id": book_id}
+    if body:
+        payload |= body.model_dump()
+
     # Create a Task row
     task = models.Task(
         type=models.TaskType.DOWNLOAD_BOOK,
         status=models.TaskStatus.QUEUED,
         user_id=local_user.id,
-        payload=dl_meta.model_dump(),  # Use model_dump to convert Pydantic model to dict
+        payload=payload,
     )
     db.add(task)
     db.commit()
