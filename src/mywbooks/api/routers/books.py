@@ -52,6 +52,7 @@ class DownloadBookMeta(BaseModel):
     image_resize_max: Optional[int]
     epub_css_filepath: Optional[str]
 
+
 class BookOut(BaseModel):
     id: int
     provider: str
@@ -199,8 +200,7 @@ def download_book_now(
         type=models.TaskType.DOWNLOAD_BOOK,
         status=models.TaskStatus.QUEUED,
         user_id=local_user.id,
-        book_id=book_id,
-        payload=None,
+        payload=dl_meta.model_dump(),  # Use model_dump to convert Pydantic model to dict
     )
     db.add(task)
     db.commit()
