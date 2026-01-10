@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Optional, TypedDict, TypeGuard
 
 from sqlalchemy import (
     JSON,
@@ -179,11 +179,42 @@ class BookUser(Base):
     )
 
 
-## Tasks
+# ####
+# ## Tasks
+# ####
 
 
 class TaskType(StrEnum):
     DOWNLOAD_BOOK = "DOWNLOAD_BOOK"
+
+
+class DownloadBookTaskPayload(TypedDict):
+    book_id: int
+    chapters: Optional[list[int]]
+
+    # Metadata overrides
+    title: Optional[str]
+    language: Optional[str]
+    cover_img: Optional[str]
+    author: Optional[str]
+    description: Optional[str]  # Ignore for now
+
+    # Processing options
+    include_images: Optional[bool]
+    include_chapter_titles: Optional[bool]
+    image_resize_max: Optional[int]
+    epub_css_filepath: Optional[str]
+
+    # Output
+    output_path: Optional[str]
+
+
+def is_download_book_task_payload(
+    payload: dict[str, Any]
+) -> TypeGuard[DownloadBookTaskPayload]:
+    return "book_id" in payload
+
+
 
 
 class TaskStatus(StrEnum):
@@ -202,7 +233,9 @@ class Task(Base):
     status: Mapped[TaskStatus] = mapped_column(String(32), index=True)
 
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    book_id: Mapped[int | None] = mapped_column(ForeignKey("books.id"), nullable=True)
+
+    # NOTE: It's a bit strnge to have a book_id here. Since we might want to
+    # have tasks not related to a spesific book. Same with the userId
 
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 

@@ -42,24 +42,25 @@ def upsert_fiction_toc(
 
 
 def ensure_chapter_content(
-    db: Session, book: models.Book, dm: DownlaodManager, *, limit: int | None = None
+    db: Session,
+    book: models.Book,
+    dm: DownlaodManager,
+    *,
+    chapters: list[models.Chapter] | None,  # If None, fetch all missing
 ) -> int:
     """
-    Fill missing Chapter.content_html in DB for this book (provider-agnostic).
+    Fill missing content for chapters of a book.
     Returns number of chapters fetched.
     """
 
     prov = get_provider_by_key(book.provider)
-    q = (
-        db.query(models.Chapter)
-        .filter(
-            models.Chapter.book_id == book.id, models.Chapter.content_html.is_(None)
+    if not chapters:
+        # Find all missing chapters
+        q_missing = db.query(models.Chapter).filter(
+            models.Chapter.book_id == book.id,
+            models.Chapter.content_html.is_(None),
         )
-        .order_by(models.Chapter.index.asc())
-    )
-    if limit:
-        q = q.limit(limit)
-    chapters = q.all()
+        chapters = q_missing.all()
 
     count = 0
     for ch in chapters:
@@ -88,6 +89,8 @@ def export_book_to_epub_from_db(
     book: models.Book,
     cfg: EbookGeneratorConfig,
     out_path: Path,
+    # List of chapter IDs to include; if None, include all
+    chapter_list: list[int] | None = None,
     # exp_options: ExportOptions,
     *,
     dm: DownlaodManager,
@@ -109,16 +112,15 @@ def export_book_to_epub_from_db(
         upsert_fiction_toc(db, book, dm)
 
     # If anything is missing HTML, fetch it now.
-    missing = (
-        db.query(models.Chapter)
-        .filter(
-            models.Chapter.book_id == book.id,
-            models.Chapter.content_html.is_(None),
-        )
-        .count()
+    q_missing = db.query(models.Chapter).filter(
+        models.Chapter.book_id == book.id,
+        models.Chapter.content_html.is_(None),
     )
+    if chapter_list is not None:
+        q_missing = q_missing.filter(models.Chapter.id.in_(chapter_list))
+    missing = q_missing.all()
     if missing:
-        ensure_chapter_content(db, book, dm)
+        ensure_chapter_content(db, book, dm, chapters=missing)
 
     # Prepare generator config from DB-only metadata
     gen = EbookGenerator(
@@ -128,14 +130,17 @@ def export_book_to_epub_from_db(
     )
 
     # Stream chapters from DB, in order
-    rows = (
+    q_chapters = (
         db.query(models.Chapter)
         .filter(
             models.Chapter.book_id == book.id, models.Chapter.is_fetched == True
         )  # noqa: E712
         .order_by(models.Chapter.index.asc())
-        .all()
     )
+    if chapter_list is not None:
+        q_chapters = q_chapters.filter(models.Chapter.id.in_(chapter_list))
+
+    rows = q_chapters.all()
     for chm in rows:
         dto = ChapterDTO.from_model(
             chm

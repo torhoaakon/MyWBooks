@@ -21,7 +21,9 @@ from mywbooks.tasks import download_book_task
 router = APIRouter()
 
 
-# --- Schemas ----------------------------------------------------------
+# ####
+# ## Schemas
+# ####
 
 
 class AddRoyalRoadBody(BaseModel):
@@ -34,6 +36,21 @@ class AddRoyalRoadBody(BaseModel):
             raise ValueError("Either 'url' or 'fiction_id' must be provided")
         return self
 
+
+class DownloadBookMeta(BaseModel):
+    book_id: int
+    chapters: Optional[list[int]]
+
+    title: Optional[str]
+    cover_img: Optional[str]
+    author: Optional[str]
+    description: Optional[str]  # Ignore for now
+    # May add more meta
+
+    include_images: Optional[bool]
+    include_chapter_titles: Optional[bool]
+    image_resize_max: Optional[int]
+    epub_css_filepath: Optional[str]
 
 class BookOut(BaseModel):
     id: int
@@ -156,14 +173,15 @@ def unsubscribe_book(
 # TODO: Here there should be some more generate config
 @router.post("/{book_id}/download")
 def download_book_now(
-    book_id: int, user: CurrentUser, db: Session = Depends(get_db)
+    dl_meta: DownloadBookMeta, user: CurrentUser, db: Session = Depends(get_db)
 ) -> DownloadBookNowResponse:
     """
     Queue a download/export job and return a task id the client can poll.
     """
     local_user = get_or_create_user_by_sub(db, user)
+    book_id = dl_meta.book_id
 
-    # Must be subscribed
+    # Check that the user is subscribed
     rel = db.execute(
         select(models.BookUser).where(
             models.BookUser.user_id == local_user.id,
@@ -172,7 +190,9 @@ def download_book_now(
         )
     ).scalar_one_or_none()
     if not rel:
-        raise HTTPException(status_code=403, detail="Not subscribed to this book.")
+        raise HTTPException(
+            status_code=403, detail="The user is not subscribed to this book."
+        )
 
     # Create a Task row
     task = models.Task(
@@ -199,7 +219,7 @@ def download_book_for_task(
     task_id: int,
     user: CurrentUser,
     db: Session = Depends(get_db),
-):
+) -> FileResponse:
     local_user = get_or_create_user_by_sub(db, user)
 
     task: models.Task | None = db.get(models.Task, task_id)
@@ -221,6 +241,13 @@ def download_book_for_task(
         )
 
     payload = task.payload or {}
+    book_id = payload.get("book_id")
+    if not book_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No book_id registered for this task",
+        )
+
     output_path = payload.get("output_path")
     if not output_path:
         raise HTTPException(
@@ -246,7 +273,7 @@ def download_book_for_task(
         )
 
     # Optional nicer filename based on book title
-    book: models.Book | None = db.get(models.Book, task.book_id)
+    book: models.Book | None = db.get(models.Book, book_id)
     if book and book.title:
         safe_title = "".join(
             c for c in book.title if c.isalnum() or c in (" ", "_", "-")

@@ -13,7 +13,14 @@ from mywbooks.task_cleanup import register_cleanup
 from . import queue  # This import is IMPORTANT
 from .db import SessionLocal
 from .download_manager import DownlaodManager
-from .models import Book, Task, TaskStatus, TaskType
+from .models import (
+    Book,
+    DownloadBookTaskPayload,
+    Task,
+    TaskStatus,
+    TaskType,
+    is_download_book_task_payload,
+)
 from .services.book_ops import export_book_to_epub_from_db, upsert_fiction_toc
 from .utils import utcnow
 
@@ -31,11 +38,16 @@ def download_book_task(task_id: int) -> None:
         task.attempts += 1
         db.commit()
 
-        book = db.get(Book, task.book_id)
-        if not book:
-            raise RuntimeError(f"Book {task.book_id} not found")
+        # TODO: DEBUG MODE ONLY
+        if not task.payload or not is_download_book_task_payload(task.payload):
+            raise RuntimeError("Invalid task payload")
 
-        payload: dict[str, Any] = task.payload or {}
+        payload = task.payload
+        book_id = payload["book_id"]
+
+        book = db.get(Book, book_id)
+        if not book:
+            raise RuntimeError(f"Book {book_id} not found")
 
         dm = DownlaodManager(Path("./cache"))
         out_dir = EPUB_DIR
@@ -49,27 +61,39 @@ def download_book_task(task_id: int) -> None:
 
         cover_url: Url = Url(book.cover_url) if book.cover_url else DEFAULT_COVER_URL
         bcfg = BookConfig(
-            title=payload.get("book-title", book.title),
-            author=payload.get("book-author", book.author or ""),
-            language=payload.get("book-language", book.language),
-            cover_image=payload.get("book-cover", cover_url),
+            title=payload.get("title") or book.title,
+            author=payload.get("author") or book.author or "",
+            language=payload.get("language") or book.language or "en",
+            cover_image=(
+                Url(payload.get("cover_img") or "")
+                if payload.get("cover_img")
+                else cover_url
+            ),
         )
 
         keys = [
-            "include-images",
-            "include-chapter-titles",
-            "image-resize-max",
-            "epub-css-filepath",
+            "include_images",
+            "include_chapter_titles",
+            "image_resize_max",
+            "epub_css_filepath",
         ]
         cfg = EbookGeneratorConfig(
             book_config=bcfg,
-            **{k: payload[k.replace("-", "_")] for k in keys if k in payload},
+            **{k: payload[k] for k in keys if k in payload and payload[k] is not None},
         )
-        export_book_to_epub_from_db(db, book, dm=dm, cfg=cfg, out_path=out_path)
+
+        export_book_to_epub_from_db(
+            db,
+            book,
+            dm=dm,
+            cfg=cfg,
+            chapter_list=payload.get("chapters") or None,
+            out_path=out_path,
+        )
 
         # Mark success (you could store a file path in payload)
         task.status = TaskStatus.SUCCEEDED
-        task.payload = {"output_path": str(out_path)}
+        task.payload["output_path"] = str(out_path)
         task.finished_at = utcnow()
         db.commit()
 
@@ -85,7 +109,7 @@ def download_book_task(task_id: int) -> None:
         db.close()
 
 
-@register_cleanup(TaskType.DOWNLOAD_BOOK)
+@register_cleanup(TaskType.DOWNLOAD_BOOK)  # type: ignore
 def cleanup_download_book(task: Task) -> None:
     payload = task.payload or {}
     output_path = payload.get("output_path")
