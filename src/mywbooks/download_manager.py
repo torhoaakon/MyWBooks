@@ -19,6 +19,7 @@ class DownlaodManager:
 
     def __init__(self, base_cache_dir: Path) -> None:
         self.base_cache_dir = base_cache_dir
+        self.base_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def get_url_hash(self, url: Url) -> str:
         # return hashlib.md5(str(url).encode("utf-8")).hexdigest()
