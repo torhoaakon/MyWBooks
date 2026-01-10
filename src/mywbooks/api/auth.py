@@ -106,9 +106,9 @@ def verify_jwt(cred: HTTPAuthorizationCredentials = Depends(bearer)) -> UserClai
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token:\n\n {e}"
         )
 
 
