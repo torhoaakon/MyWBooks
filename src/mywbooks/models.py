@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Optional, TypedDict, TypeGuard
+from pathlib import Path
+from typing import Any, Optional
 
+from pydantic import BaseModel
+from pydantic_core import Url
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -186,16 +189,17 @@ class BookUser(Base):
 
 class TaskType(StrEnum):
     DOWNLOAD_BOOK = "DOWNLOAD_BOOK"
+    SEND_BOOK = "SEND_BOOK"
 
 
-class DownloadBookTaskPayload(TypedDict):
+class DownloadBookTaskPayload(BaseModel):
     book_id: int
     chapters: Optional[list[int]]
 
     # Metadata overrides
     title: Optional[str]
     language: Optional[str]
-    cover_img: Optional[str]
+    cover_img: Optional[Url]
     author: Optional[str]
     description: Optional[str]  # Ignore for now
 
@@ -209,12 +213,13 @@ class DownloadBookTaskPayload(TypedDict):
     output_path: Optional[str]
 
 
-def is_download_book_task_payload(
-    payload: dict[str, Any]
-) -> TypeGuard[DownloadBookTaskPayload]:
-    return "book_id" in payload
+class SendBookTaskPayload(BaseModel):
+    recipient_email: str
+    book_path: Path
+    book_title: str
 
-
+    # Optional overrides, similar to download
+    output_path: Optional[str]
 
 
 class TaskStatus(StrEnum):
