@@ -5,6 +5,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, HttpUrl, model_validator
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from mywbooks import models
 from mywbooks.api.auth import CurrentUser, get_or_create_user_by_sub
 from mywbooks.book import EPUB_DIR
@@ -12,10 +16,7 @@ from mywbooks.db import get_db
 from mywbooks.download_manager import DownlaodManager, get_dm
 from mywbooks.library import add_book_to_user
 from mywbooks.services import ingest
-from mywbooks.tasks import download_book_task
-from pydantic import BaseModel, HttpUrl, model_validator
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from mywbooks.tasks import download_book_task, scedule_task
 
 router = APIRouter()
 
@@ -85,6 +86,11 @@ class ResponseMsg(BaseModel):
 
 
 class DownloadBookNowResponse(ResponseMsg):
+    task_id: int
+    task_status: models.TaskStatus
+
+
+class SendByEmailResponse(ResponseMsg):
     task_id: int
     task_status: models.TaskStatus
 
@@ -199,23 +205,87 @@ def download_book_now(
     if body:
         payload |= body.model_dump()
 
-    # Create a Task row
-    task = models.Task(
-        type=models.TaskType.DOWNLOAD_BOOK,
-        status=models.TaskStatus.QUEUED,
+    task = scedule_task(
+        db,
+        models.TaskType.DOWNLOAD_BOOK,
+        local_user.id,
+        payload,
+    )
+
+    return DownloadBookNowResponse(ok=True, task_id=task.id, task_status=task.status)
+
+
+@router.get("/tasks/{task_id}/send_by_email")
+def send_download_by_email(
+    task_id: int,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    local_user = get_or_create_user_by_sub(db, user)
+
+    task: models.Task | None = db.get(models.Task, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
+
+    if task.type != models.TaskType.DOWNLOAD_BOOK:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task is not a book download task",
+        )
+
+    if task.status == models.TaskStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            detail=f"Download failed: {task.error or ''}",
+        )
+
+    payload = models.DownloadBookTaskPayload.model_validate(task.payload)
+
+    if (
+        task.status == models.TaskStatus.RUNNING
+        or task.status == models.TaskStatus.QUEUED
+    ):
+        #  Scedule send on finishing
+
+        raise HTTPException(
+            status_code=status.HTTP_425_TOO_EARLY,
+            detail=f"Not implemented yet",
+        )
+        # raise RuntimeError("Not yet implemented")
+
+    if task.status != models.TaskStatus.SUCCEEDED:
+        raise RuntimeError("Unreachable")
+
+    # validate out_path
+
+    if local_user.kindle_email is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The user has not provided a recipient email address. Please set your kinlde email address",
+        )
+
+    if payload.output_path is None or not payload.output_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The download file path is not valid",
+        )
+
+    payload = models.SendBookTaskPayload(
+        recipient_email=local_user.kindle_email,
+        book_path=payload.output_path,
+        book_title="",
+    )
+
+    task = scedule_task(
+        db,
+        type=models.TaskType.SEND_BOOK,
         user_id=local_user.id,
-        payload=payload,
+        payload=payload.model_dump(),
     )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
 
-    # Enqueue the job (fire-and-forget)
-    download_book_task.send(task.id)
-
-    return DownloadBookNowResponse(
-        ok=True, task_id=task.id, task_status=models.TaskStatus(task.status)
-    )
+    return SendByEmailResponse(ok=True, task_id=task.id, task_status=task.status)
 
 
 @router.get("/tasks/{task_id}/download")

@@ -28,6 +28,30 @@ from .services.book_ops import export_book_to_epub_from_db, upsert_fiction_toc
 from .utils import utcnow
 
 
+def scedule_task(db: Session, type: TaskType, user_id, payload: dict[str, Any]) -> Task:
+
+    # Create a Task row
+    task = models.Task(
+        type=type,
+        status=models.TaskStatus.QUEUED,
+        user_id=user_id,
+        payload=payload,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    match type:
+        case TaskType.DOWNLOAD_BOOK:
+            download_book_task.send(task.id)
+        case TaskType.SEND_BOOK:
+            send_book_task.send(task.id)
+        case _:
+            raise RuntimeError("Unreachable")
+
+    return task
+
+
 @contextmanager
 def try_execute_task(task_id: int):
     db = SessionLocal()

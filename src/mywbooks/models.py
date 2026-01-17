@@ -210,16 +210,13 @@ class DownloadBookTaskPayload(BaseModel):
     epub_css_filepath: Optional[str]
 
     # Output
-    output_path: Optional[str]
+    output_path: Optional[Path]
 
 
 class SendBookTaskPayload(BaseModel):
     recipient_email: str
     book_path: Path
     book_title: str
-
-    # Optional overrides, similar to download
-    output_path: Optional[str]
 
 
 class TaskStatus(StrEnum):
