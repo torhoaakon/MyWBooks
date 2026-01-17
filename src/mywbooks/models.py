@@ -209,6 +209,9 @@ class DownloadBookTaskPayload(BaseModel):
     image_resize_max: Optional[int]
     epub_css_filepath: Optional[str]
 
+    # On finished
+    send_by_email: Optional[SendBookTaskPayload]
+
     # Output
     output_path: Optional[Path]
 

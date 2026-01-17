@@ -16,7 +16,7 @@ from mywbooks.db import get_db
 from mywbooks.download_manager import DownlaodManager, get_dm
 from mywbooks.library import add_book_to_user
 from mywbooks.services import ingest
-from mywbooks.tasks import download_book_task, scedule_task
+from mywbooks.tasks import scedule_task
 
 router = APIRouter()
 
@@ -50,6 +50,9 @@ class DownloadBookNowBody(BaseModel):
     include_chapter_titles: Optional[bool]
     image_resize_max: Optional[int]
     epub_css_filepath: Optional[str]
+
+    # On finished
+    # send_by_email: Optional[bool]  TODO
 
 
 class BookOut(BaseModel):
@@ -220,7 +223,7 @@ def send_download_by_email(
     task_id: int,
     user: CurrentUser,
     db: Session = Depends(get_db),
-):
+) -> SendByEmailResponse:
     local_user = get_or_create_user_by_sub(db, user)
 
     task: models.Task | None = db.get(models.Task, task_id)
@@ -243,49 +246,47 @@ def send_download_by_email(
 
     payload = models.DownloadBookTaskPayload.model_validate(task.payload)
 
-    if (
-        task.status == models.TaskStatus.RUNNING
-        or task.status == models.TaskStatus.QUEUED
-    ):
-        #  Scedule send on finishing
-
-        raise HTTPException(
-            status_code=status.HTTP_425_TOO_EARLY,
-            detail=f"Not implemented yet",
-        )
-        # raise RuntimeError("Not yet implemented")
-
-    if task.status != models.TaskStatus.SUCCEEDED:
-        raise RuntimeError("Unreachable")
-
-    # validate out_path
-
     if local_user.kindle_email is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The user has not provided a recipient email address. Please set your kinlde email address",
         )
 
-    if payload.output_path is None or not payload.output_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The download file path is not valid",
-        )
-
-    payload = models.SendBookTaskPayload(
+    new_payload = models.SendBookTaskPayload(
         recipient_email=local_user.kindle_email,
-        book_path=payload.output_path,
+        book_path=payload.output_path or EPUB_DIR,
         book_title="",
     )
 
-    task = scedule_task(
-        db,
-        type=models.TaskType.SEND_BOOK,
-        user_id=local_user.id,
-        payload=payload.model_dump(),
-    )
+    if (
+        task.status == models.TaskStatus.RUNNING
+        or task.status == models.TaskStatus.QUEUED
+    ):
 
-    return SendByEmailResponse(ok=True, task_id=task.id, task_status=task.status)
+        payload.send_by_email = new_payload
+        task.payload = payload.model_dump()
+
+        return SendByEmailResponse(ok=True, task_id=task.id, task_status=task.status)
+
+    elif task.status == models.TaskStatus.SUCCEEDED:
+        if payload.output_path is None or not payload.output_path.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="The download file path is not valid",
+            )
+
+        email_task = scedule_task(
+            db,
+            type=models.TaskType.SEND_BOOK,
+            user_id=local_user.id,
+            payload=new_payload.model_dump(),
+        )
+
+        return SendByEmailResponse(
+            ok=True, task_id=email_task.id, task_status=email_task.status
+        )
+
+    raise RuntimeError("Unreachable")
 
 
 @router.get("/tasks/{task_id}/download")

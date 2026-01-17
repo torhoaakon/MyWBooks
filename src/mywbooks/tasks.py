@@ -133,6 +133,12 @@ def download_book_task(task_id: int) -> None:
             out_path=out_path,
         )
 
+        if payload.send_by_email:
+            payload.send_by_email.book_path = out_path
+            scedule_task(
+                db, TaskType.SEND_BOOK, task.user_id, payload.send_by_email.model_dump()
+            )
+
 
 @dramatiq.actor(max_retries=1)
 def send_book_task(task_id: int) -> None:
