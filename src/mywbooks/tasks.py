@@ -59,8 +59,6 @@ def try_execute_task(task_id: int):
     try:
         task = db.get(models.Task, task_id)
 
-        print(f"Hello {task}")
-
         if not task:
             yield (db, task)
             return  # nothing to do
@@ -69,8 +67,6 @@ def try_execute_task(task_id: int):
         task.started_at = utcnow()
         task.attempts += 1
         db.commit()
-
-        print("Hello")
 
         yield (db, task)
 
