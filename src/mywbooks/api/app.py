@@ -4,8 +4,6 @@ from typing import Any, AsyncGenerator
 
 import dotenv
 
-from mywbooks.api.routers import tasks
-
 dotenv.load_dotenv()
 
 from contextlib import asynccontextmanager
@@ -15,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..db import init_db
 from .auth import CurrentUser
-from .routers import books
+from .routers import books, tasks, users
 
 
 @asynccontextmanager
@@ -45,6 +43,7 @@ app.add_middleware(
 api_router = APIRouter(prefix="/api")
 api_router.include_router(books.router, prefix="/books", tags=["books"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+api_router.include_router(users.router, prefix="/user", tags=["user"])
 
 app.include_router(api_router)
 
