@@ -58,13 +58,19 @@ def try_execute_task(task_id: int):
 
     try:
         task = db.get(models.Task, task_id)
+
+        print(f"Hello {task}")
+
         if not task:
+            yield (db, task)
             return  # nothing to do
 
         task.status = TaskStatus.RUNNING
         task.started_at = utcnow()
         task.attempts += 1
         db.commit()
+
+        print("Hello")
 
         yield (db, task)
 
@@ -83,10 +89,14 @@ def try_execute_task(task_id: int):
     finally:
         db.close()
 
+    raise RuntimeError("Unreachable")
+
 
 @dramatiq.actor(max_retries=1)
 def download_book_task(task_id: int) -> None:
     with try_execute_task(task_id) as (db, task):
+        if task is None:
+            return
 
         payload = DownloadBookTaskPayload.model_validate(task.payload)
 
@@ -143,6 +153,8 @@ def download_book_task(task_id: int) -> None:
 @dramatiq.actor(max_retries=1)
 def send_book_task(task_id: int) -> None:
     with try_execute_task(task_id) as (_, task):
+        if task is None:
+            return
 
         payload = SendBookTaskPayload.model_validate(task.payload)
 
