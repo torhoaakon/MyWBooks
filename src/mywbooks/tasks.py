@@ -1,9 +1,11 @@
 # Example factory that returns the right WebBook subclass from a DB Book row
-from contextlib import contextmanager
+import asyncio
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import dramatiq
+from arq.connections import ArqRedis
 from pydantic_core import Url
 from sqlalchemy.orm import Session
 
@@ -13,7 +15,6 @@ from mywbooks.ebook_generator import EbookGeneratorConfig
 from mywbooks.email_sender import send_ebook_email
 from mywbooks.task_cleanup import register_cleanup
 
-from . import queue  # This import is IMPORTANT
 from .db import SessionLocal
 from .download_manager import DownlaodManager
 from .models import (
@@ -28,7 +29,13 @@ from .services.book_ops import export_book_to_epub_from_db, upsert_fiction_toc
 from .utils import utcnow
 
 
-def scedule_task(db: Session, type: TaskType, user_id, payload: dict[str, Any]) -> Task:
+async def schedule_task(
+    db: Session,
+    arq_pool: ArqRedis,
+    type: TaskType,
+    user_id: int,
+    payload: dict[str, Any],
+) -> Task:
 
     # Create a Task row
     task = models.Task(
@@ -43,17 +50,20 @@ def scedule_task(db: Session, type: TaskType, user_id, payload: dict[str, Any]) 
 
     match type:
         case TaskType.DOWNLOAD_BOOK:
-            download_book_task.send(task.id)
+            await arq_pool.enqueue_job("download_book_task", task.id)
         case TaskType.SEND_BOOK:
-            send_book_task.send(task.id)
+            await arq_pool.enqueue_job("send_book_task", task.id)
         case _:
             raise RuntimeError("Unreachable")
 
     return task
 
 
-@contextmanager
-def try_execute_task(task_id: int):
+@asynccontextmanager
+async def try_execute_task(task_id: int):
+    # NOTE: We are using a sync DB session in an async context.
+    # ideally we would run this in a thread executor or use AsyncSession.
+    # For now, we assume these are fast enough.
     db = SessionLocal()
 
     try:
@@ -81,16 +91,13 @@ def try_execute_task(task_id: int):
             task.error = str(e)
             task.finished_at = utcnow()
             db.commit()
-        raise  # let Dramatiq retry
+        raise  # let arq retry (if configured) or handle failure
     finally:
         db.close()
 
-    raise RuntimeError("Unreachable")
 
-
-@dramatiq.actor(max_retries=1)
-def download_book_task(task_id: int) -> None:
-    with try_execute_task(task_id) as (db, task):
+async def download_book_task(ctx, task_id: int) -> None:
+    async with try_execute_task(task_id) as (db, task):
         if task is None:
             return
 
@@ -105,10 +112,11 @@ def download_book_task(task_id: int) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
 
-        # NOTE: Should probably not be doing this her here
-        upsert_fiction_toc(
-            db, book, dm
-        )  ## Look for new chapters and changes to metadata
+        payload.output_path = str(out_path)
+
+        # NOTE: logic that should be async or threaded eventually
+        # upsert_fiction_toc(db, book, dm)
+        await asyncio.to_thread(upsert_fiction_toc, db, book, dm)
 
         bcfg = BookConfig(
             title=payload.title or book.title,
@@ -130,7 +138,9 @@ def download_book_task(task_id: int) -> None:
             if getattr(payload, k) is not None
         }
 
-        export_book_to_epub_from_db(
+        # export_book_to_epub_from_db(db, book, dm, ...)
+        await asyncio.to_thread(
+            export_book_to_epub_from_db,
             db,
             book,
             dm=dm,
@@ -141,21 +151,36 @@ def download_book_task(task_id: int) -> None:
 
         if payload.send_by_email:
             payload.send_by_email.book_path = out_path
-            scedule_task(
-                db, TaskType.SEND_BOOK, task.user_id, payload.send_by_email.model_dump()
+            # We need to access the redis pool from ctx to schedule the next job
+            # ctx['redis'] is the pool in arq workers
+            arq_pool: ArqRedis = ctx["redis"]
+            await schedule_task(
+                db,
+                arq_pool,
+                TaskType.SEND_BOOK,
+                task.user_id,
+                payload.send_by_email.model_dump(),
             )
 
+        sys.stderr.write("ERROR: " + str(task.payload) + "\n")
 
-@dramatiq.actor(max_retries=1)
-def send_book_task(task_id: int) -> None:
-    with try_execute_task(task_id) as (_, task):
+        # We update the task payload, the db is committed at the end of the task
+        task.payload = payload.model_dump()
+
+        sys.stderr.write("ERROR: " + str(payload.model_dump()) + "\n")
+        sys.stderr.write("ERROR: " + str(task.payload) + "\n")
+
+
+async def send_book_task(ctx, task_id: int) -> None:
+    async with try_execute_task(task_id) as (_, task):
         if task is None:
             return
 
         payload = SendBookTaskPayload.model_validate(task.payload)
 
-        # Send Email
-        send_ebook_email(
+        # Send Email (blocking I/O, run in thread)
+        await asyncio.to_thread(
+            send_ebook_email,
             recipient_email=payload.recipient_email,
             ebook_path=payload.book_path,
             book_title=payload.book_title,

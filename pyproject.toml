@@ -18,9 +18,9 @@ dependencies = [
     "pyjwt>=2.9",
     "sqlalchemy>=2.0.43",
     "python-dotenv>=1.0.1",
-    "dramatiq[redis,watch]>=1.18.0",
     "alembic>=1.13.1",
     "email-validator>=2.2.0",
+    "arq>=0.26.3",
 ]
 
 [build-system]

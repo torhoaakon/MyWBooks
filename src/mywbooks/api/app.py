@@ -3,12 +3,16 @@ from __future__ import annotations
 from typing import Any, AsyncGenerator
 
 import dotenv
+from arq import create_pool
+from arq.connections import ArqRedis, RedisSettings
+
+from mywbooks.worker import WorkerSettings
 
 dotenv.load_dotenv()
 
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..db import init_db
@@ -20,7 +24,10 @@ from .routers import books, tasks, users
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     init_db()
+    app.state.arq_pool = await create_pool(WorkerSettings.redis_settings)
     yield
+    # Shutdown
+    await app.state.arq_pool.close()
 
 
 app = FastAPI(

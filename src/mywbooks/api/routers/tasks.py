@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import localcontext
 from typing import Any, Sequence
 
 from fastapi import APIRouter, Depends, Query, status
@@ -18,22 +19,22 @@ router = APIRouter()
 
 # --- Response Schemas ------------------------------------------------
 
-
-class TaskOut(BaseModel):
-    id: int
-    book_id: int
-    # user_id: int ???
-    status: TaskStatus
-    error: str | None = None
-    created_at: datetime
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
-    attempts: int
-    payload: dict[str, Any] | None = None
-
-    class Config:
-        from_attributes = True  # SQLAlchemy 2.x compatible
-        # or: orm_mode = True  (if you're still on Pydantic v1)
+#
+# class TaskOut(BaseModel):
+#     id: int
+#     book_id: int
+#     # user_id: int ???
+#     status: TaskStatus
+#     error: str | None = None
+#     created_at: datetime
+#     started_at: datetime | None = None
+#     finished_at: datetime | None = None
+#     attempts: int
+#     payload: dict[str, Any] | None = None
+#
+#     class Config:
+#         from_attributes = True  # SQLAlchemy 2.x compatible
+#         # or: orm_mode = True  (if you're still on Pydantic v1)
 
 
 class CleanupResponse(BaseModel):
@@ -44,7 +45,7 @@ class CleanupResponse(BaseModel):
 # --- Routes ----------------------------------------------------------
 
 
-@router.get("", response_model=list[TaskOut])
+@router.get("")
 def list_my_tasks(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -63,7 +64,7 @@ def list_my_tasks(
         ge=0,
         description="Offset for pagination",
     ),
-) -> Sequence[Task]:
+) -> Sequence[dict[str, Any]]:
     """
     List all tasks owned by the current user.
     """
@@ -82,7 +83,28 @@ def list_my_tasks(
 
     tasks: Sequence[Task] = db.scalars(stmt).all()
 
-    return tasks
+    # print(tasks)
+
+    res = []
+    for task in tasks:
+        payload = task.payload or {}
+        res.append(
+            {
+                "id": task.id,
+                "type": task.type,
+                "status": task.status,
+                "book_id": payload.get("book_id") or -1,
+                "payload": task.payload,
+                "error": task.error,
+                "created_at": task.created_at.isoformat(),
+                "started_at": task.started_at.isoformat() if task.started_at else None,
+                "finished_at": (
+                    task.finished_at.isoformat() if task.finished_at else None
+                ),
+            }
+        )
+
+    return res
 
 
 @router.get("/{task_id}")

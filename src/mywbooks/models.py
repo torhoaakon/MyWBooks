@@ -194,26 +194,26 @@ class TaskType(StrEnum):
 
 class DownloadBookTaskPayload(BaseModel):
     book_id: int
-    chapters: Optional[list[int]]
+    chapters: Optional[list[int]] = None
 
     # Metadata overrides
-    title: Optional[str]
-    language: Optional[str]
-    cover_img: Optional[Url]
-    author: Optional[str]
-    description: Optional[str]  # Ignore for now
+    title: Optional[str] = None
+    language: Optional[str] = None
+    cover_img: Optional[Url] = None
+    author: Optional[str] = None
+    description: Optional[str] = None  # Ignore for now
 
     # Processing options
-    include_images: Optional[bool]
-    include_chapter_titles: Optional[bool]
-    image_resize_max: Optional[int]
-    epub_css_filepath: Optional[str]
+    include_images: Optional[bool] = None
+    include_chapter_titles: Optional[bool] = None
+    image_resize_max: Optional[int] = None
+    epub_css_filepath: Optional[str] = None
 
     # On finished
-    send_by_email: Optional[SendBookTaskPayload]
+    send_by_email: Optional[SendBookTaskPayload] = None
 
     # Output
-    output_path: Optional[Path]
+    output_path: Optional[str] = None
 
 
 class SendBookTaskPayload(BaseModel):

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl, model_validator
@@ -11,12 +12,13 @@ from sqlalchemy.orm import Session
 
 from mywbooks import models
 from mywbooks.api.auth import CurrentUser, get_or_create_user_by_sub
+from mywbooks.api.deps import get_arq_pool
 from mywbooks.book import EPUB_DIR
 from mywbooks.db import get_db
 from mywbooks.download_manager import DownlaodManager, get_dm
 from mywbooks.library import add_book_to_user
 from mywbooks.services import ingest
-from mywbooks.tasks import scedule_task
+from mywbooks.tasks import schedule_task
 
 router = APIRouter()
 
@@ -38,18 +40,18 @@ class AddRoyalRoadBody(BaseModel):
 
 
 class DownloadBookNowBody(BaseModel):
-    chapters: Optional[list[int]]
+    chapters: Optional[list[int]] = None
 
-    title: Optional[str]
-    cover_img: Optional[str]
-    author: Optional[str]
-    description: Optional[str]  # Ignore for now
+    title: Optional[str] = None
+    cover_img: Optional[str] = None
+    author: Optional[str] = None
+    description: Optional[str] = None  # Ignore for now
     # May add more meta
 
-    include_images: Optional[bool]
-    include_chapter_titles: Optional[bool]
-    image_resize_max: Optional[int]
-    epub_css_filepath: Optional[str]
+    include_images: Optional[bool] = None
+    include_chapter_titles: Optional[bool] = None
+    image_resize_max: Optional[int] = None
+    epub_css_filepath: Optional[str] = None
 
     # On finished
     # send_by_email: Optional[bool]  TODO
@@ -180,11 +182,12 @@ def unsubscribe_book(
 
 # TODO: Here there should be some more generate config
 @router.post("/{book_id}/download")
-def download_book_now(
+async def download_book_now(
     book_id: int,
-    body: DownloadBookNowBody,
     user: CurrentUser,
+    body: DownloadBookNowBody | None = None,
     db: Session = Depends(get_db),
+    arq_pool: ArqRedis = Depends(get_arq_pool),
 ) -> DownloadBookNowResponse:
     """
     Queue a download/export job and return a task id the client can poll.
@@ -205,11 +208,13 @@ def download_book_now(
         )
 
     payload = {"book_id": book_id}
+
     if body:
         payload |= body.model_dump()
 
-    task = scedule_task(
+    task = await schedule_task(
         db,
+        arq_pool,
         models.TaskType.DOWNLOAD_BOOK,
         local_user.id,
         payload,
@@ -219,11 +224,12 @@ def download_book_now(
 
 
 @router.get("/tasks/{task_id}/send_by_email")
-def send_download_by_email(
+async def send_download_by_email(
     task_id: int,
     recipient_email: str | None,
     user: CurrentUser,
     db: Session = Depends(get_db),
+    arq_pool: ArqRedis = Depends(get_arq_pool),
 ) -> SendByEmailResponse:
     local_user = get_or_create_user_by_sub(db, user)
 
@@ -267,6 +273,7 @@ def send_download_by_email(
 
         payload.send_by_email = new_payload
         task.payload = payload.model_dump()
+        db.commit()  # Ensure payload update is saved
 
         return SendByEmailResponse(ok=True, task_id=task.id, task_status=task.status)
 
@@ -277,8 +284,9 @@ def send_download_by_email(
                 detail="The download file path is not valid",
             )
 
-        email_task = scedule_task(
+        email_task = await schedule_task(
             db,
+            arq_pool,
             type=models.TaskType.SEND_BOOK,
             user_id=local_user.id,
             payload=new_payload.model_dump(),
