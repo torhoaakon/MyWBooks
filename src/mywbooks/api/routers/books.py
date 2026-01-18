@@ -221,6 +221,7 @@ def download_book_now(
 @router.get("/tasks/{task_id}/send_by_email")
 def send_download_by_email(
     task_id: int,
+    recipient_email: str | None,
     user: CurrentUser,
     db: Session = Depends(get_db),
 ) -> SendByEmailResponse:
@@ -246,14 +247,15 @@ def send_download_by_email(
 
     payload = models.DownloadBookTaskPayload.model_validate(task.payload)
 
-    if local_user.kindle_email is None:
+    recipient_email = recipient_email or local_user.kindle_email
+    if recipient_email is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The user has not provided a recipient email address. Please set your kinlde email address",
         )
 
     new_payload = models.SendBookTaskPayload(
-        recipient_email=local_user.kindle_email,
+        recipient_email=recipient_email,
         book_path=payload.output_path or EPUB_DIR,
         book_title="",
     )

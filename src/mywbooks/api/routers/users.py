@@ -17,6 +17,9 @@ router = APIRouter()
 async def add_royalroad_book(
     kindle_email: EmailStr, user: CurrentUser, db: Session = Depends(get_db)
 ):
+
+    # TODO: Warning about: adding email to "Approved Personal Document E-mail List" on Amazon
+
     local_user = get_or_create_user_by_sub(db, user)
 
     local_user.kindle_email = str(kindle_email)
