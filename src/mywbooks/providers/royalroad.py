@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup, Tag
 from pydantic_core import Url
 
 from mywbooks.book import BookConfig, ChapterRef
-from mywbooks.download_manager import DownlaodManager
+from mywbooks.async_download_manager import AsyncDownloadManager
 from mywbooks.ebook_generator import (
     ChapterPageContent,
     ChapterPageExtractor,
@@ -70,7 +70,7 @@ class RoyalRoadProvider(Provider):
         [_, _id] = uid.split(":", 1)
         return f"https://www.royalroad.com/fiction/{_id}"
 
-    def discover_fiction(self, dm: DownlaodManager, fiction_url: Url) -> Fiction:
+    async def discover_fiction(self, dm: AsyncDownloadManager, fiction_url: Url) -> Fiction:
 
         uid = self.fiction_uid_from_url(str(fiction_url))
         if not uid:
@@ -78,7 +78,8 @@ class RoyalRoadProvider(Provider):
 
         fiction_url = Url(self.fiction_url_from_uid(uid))
 
-        html = dm.get_and_cache_data(fiction_url).decode("utf-8")
+        data = await dm.get_and_cache_data(fiction_url)
+        html = data.decode("utf-8")
         meta, chapter_urls = _parse_fiction_page(str(fiction_url), html, strict=True)
 
         def chapter_uid_from_url(url: Url) -> str:

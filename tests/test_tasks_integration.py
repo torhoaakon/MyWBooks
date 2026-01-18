@@ -127,6 +127,8 @@ def test_send_email_endpoint_schedules_task(client, db_session: Session, mock_ar
     send_task = db_session.get(models.Task, send_task_id)
     assert send_task is not None
     assert send_task.type == TaskType.SEND_BOOK
+
+    assert send_task.payload is not None
     assert send_task.payload["recipient_email"] == "kindle@example.com"
 
     # Verify Arq job enqueued

@@ -8,6 +8,7 @@ from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 from sqlalchemy.orm import Session
 
+from mywbooks.async_download_manager import AsyncDownloadManager
 from mywbooks.worker import WorkerSettings
 
 dotenv.load_dotenv()
@@ -27,8 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     init_db()
     app.state.arq_pool = await create_pool(WorkerSettings.redis_settings)
+    app.state.dm = AsyncDownloadManager()
+
     yield
     # Shutdown
+    await app.state.dm.close()
     await app.state.arq_pool.close()
 
 

@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import AsyncGenerator
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
 from arq.connections import ArqRedis
 from fastapi.testclient import TestClient
 from sqlalchemy import StaticPool, create_engine
@@ -15,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from mywbooks.api.app import app
 from mywbooks.api.deps import get_arq_pool
 from mywbooks.models import Base
+from tests.fakes import FakeAsyncDownloadManager
 
 # One shared in-memory SQLite for all sessions/connections
 engine = create_engine(
@@ -57,12 +57,12 @@ def client():
     from mywbooks.api.auth import verify_jwt
 
     app.dependency_overrides[verify_jwt] = lambda: _fake_current_user()
-    
+
     # 3) Mock ARQ pool
     mock_arq = MagicMock(spec=ArqRedis)
     mock_arq.enqueue_job = MagicMock(return_value=None)
     app.dependency_overrides[get_arq_pool] = lambda: mock_arq
-    
+
     return TestClient(app)
 
 
@@ -75,19 +75,21 @@ def db_session() -> Iterator[Session]:
     finally:
         db.close()
 
+
 @pytest.fixture
 def mock_arq_pool():
     mock = MagicMock(spec=ArqRedis)
-    # enqueue_job needs to be awaitable in async endpoints, 
-    # but since we mock the dependency which is async, 
+    # enqueue_job needs to be awaitable in async endpoints,
+    # but since we mock the dependency which is async,
     # and MagicMock isn't awaitable by default unless configured.
     # However, in sync tests with TestClient, it mostly matters what the endpoint does.
     # If the endpoint awaits it, the mock needs to return an awaitable or be an AsyncMock.
-    
+
     # Simpler: TestClient runs async endpoints via generic asyncio loop.
     # We should use AsyncMock for async methods.
     from unittest.mock import AsyncMock
+
     mock.enqueue_job = AsyncMock(return_value=None)
-    
+
     app.dependency_overrides[get_arq_pool] = lambda: mock
     return mock

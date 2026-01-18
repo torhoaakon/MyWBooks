@@ -7,8 +7,8 @@ from pydantic_core import Url
 from sqlalchemy.orm import Session
 
 from mywbooks import models
+from mywbooks.async_download_manager import AsyncDownloadManager
 from mywbooks.book import Chapter as ChapterDTO
-from mywbooks.download_manager import DownlaodManager
 from mywbooks.ebook_generator import (
     EbookGenerator,
     EbookGeneratorConfig,
@@ -26,25 +26,25 @@ def provider_for(book: models.Book) -> str:
     return book.provider.value
 
 
-def upsert_fiction_toc(
-    db: Session, book: models.Book, dm: DownlaodManager, *, do_inserts: bool = False
+async def upsert_fiction_toc(
+    db: Session, book: models.Book, dm: AsyncDownloadManager, *, do_inserts: bool = False
 ) -> int:
     """
     Updates Chapter rows for this book (provider-specific ToC discovery).
     Returns number of chapter refs discovered (not inserted count).
     """
     prov = get_provider_by_key(book.provider)
-    fic: Fiction = prov.discover_fiction(dm, Url(book.source_url))
+    fic: Fiction = await prov.discover_fiction(dm, Url(book.source_url))
 
     _upsert_book_meta(db, prov, fic.meta, book=book, do_inserts=do_inserts)
     _upsert_chapter_index_from_refs(db, prov, fic.chapter_refs, book.id)
     return len(fic.chapter_refs)
 
 
-def ensure_chapter_content(
+async def ensure_chapter_content(
     db: Session,
     book: models.Book,
-    dm: DownlaodManager,
+    dm: AsyncDownloadManager,
     *,
     chapters: list[models.Chapter] | None,  # If None, fetch all missing
 ) -> int:
@@ -64,7 +64,7 @@ def ensure_chapter_content(
 
     count = 0
     for ch in chapters:
-        soup = dm.get_and_cache_html(Url(ch.source_url))
+        soup = await dm.get_and_cache_html(Url(ch.source_url))
         page = prov.extract_chapter(
             soup,
             options=ExtractOptions(
@@ -83,7 +83,7 @@ def ensure_chapter_content(
     return count
 
 
-def export_book_to_epub_from_db(
+async def export_book_to_epub_from_db(
     db: Session,
     book: models.Book,
     cfg: EbookGeneratorConfig,
@@ -92,7 +92,7 @@ def export_book_to_epub_from_db(
     chapter_list: list[int] | None = None,
     # exp_options: ExportOptions,
     *,
-    dm: DownlaodManager,
+    dm: AsyncDownloadManager,
     **kw: dict[str, Any],
     # css_path: Path,
     # out_path: Path,
@@ -108,7 +108,7 @@ def export_book_to_epub_from_db(
     # Ensure at least one ToC row exists (no-op if already present)
     # NOTE: This should not be necessary, since this info is retrieved on book insertion
     if not book.chapters:
-        upsert_fiction_toc(db, book, dm)
+        await upsert_fiction_toc(db, book, dm)
 
     # If anything is missing HTML, fetch it now.
     q_missing = db.query(models.Chapter).filter(
@@ -119,7 +119,7 @@ def export_book_to_epub_from_db(
         q_missing = q_missing.filter(models.Chapter.id.in_(chapter_list))
     missing = q_missing.all()
     if missing:
-        ensure_chapter_content(db, book, dm, chapters=missing)
+        await ensure_chapter_content(db, book, dm, chapters=missing)
 
     # Prepare generator config from DB-only metadata
     gen = EbookGenerator(
@@ -146,5 +146,5 @@ def export_book_to_epub_from_db(
         )  # builds a Chapter DTO with images map, etc. :contentReference[oaicite:1]{index=1}
         gen.add_chapter(dto)
 
-    gen.export_as_epub(out_path)
+    await gen.export_as_epub(out_path)
     return out_path

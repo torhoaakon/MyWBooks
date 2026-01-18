@@ -12,10 +12,10 @@ from sqlalchemy.orm import Session
 
 from mywbooks import models
 from mywbooks.api.auth import CurrentUser, get_or_create_user_by_sub
-from mywbooks.api.deps import get_arq_pool
+from mywbooks.api.deps import get_arq_pool, get_dm
+from mywbooks.async_download_manager import AsyncDownloadManager
 from mywbooks.book import EPUB_DIR
 from mywbooks.db import get_db
-from mywbooks.download_manager import DownlaodManager, get_dm
 from mywbooks.library import add_book_to_user
 from mywbooks.services import ingest
 from mywbooks.tasks import schedule_task
@@ -107,11 +107,11 @@ class SendByEmailResponse(ResponseMsg):
 
 
 @router.post("/royalroad", response_model=BookOut, status_code=201)
-def add_royalroad_book(
+async def add_royalroad_book(
     body: AddRoyalRoadBody,
     user: CurrentUser,
     db: Session = Depends(get_db),
-    dm: DownlaodManager = Depends(get_dm),
+    dm: AsyncDownloadManager = Depends(get_dm),
 ) -> BookOut:
     """
     Upsert a RoyalRoad book (by fiction URL or fiction_id) and subscribe the current user.
@@ -119,12 +119,12 @@ def add_royalroad_book(
 
     # 1) Upsert book via your ingest helpers
     if body.url:
-        book_id = ingest.upsert_royalroad_book_from_url(db, body.url._url, dm)
+        book_id = await ingest.upsert_royalroad_book_from_url(db, body.url._url, dm)
     else:
         # If your ingest exposes a dedicated fiction-id helper, use it.
         # Otherwise, synthesize a URL (works with your current ingest).
         url = f"https://www.royalroad.com/fiction/{body.fiction_id}"
-        book_id = ingest.upsert_royalroad_book_from_url(db, url, dm)
+        book_id = await ingest.upsert_royalroad_book_from_url(db, url, dm)
 
     # 2) Map Supabase user → local User and subscribe
     local_user = get_or_create_user_by_sub(db, user)

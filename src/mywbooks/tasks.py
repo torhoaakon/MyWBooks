@@ -15,8 +15,8 @@ from mywbooks.ebook_generator import EbookGeneratorConfig
 from mywbooks.email_sender import send_ebook_email
 from mywbooks.task_cleanup import register_cleanup
 
+from .async_download_manager import AsyncDownloadManager
 from .db import SessionLocal
-from .download_manager import DownlaodManager
 from .models import (
     Book,
     DownloadBookTaskPayload,
@@ -110,68 +110,58 @@ async def download_book_task(ctx, task_id: int) -> None:
         if not book:
             raise RuntimeError(f"Book {payload.book_id} not found")
 
-        dm = DownlaodManager(Path("./cache"))
-        out_dir = EPUB_DIR
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
+        async with AsyncDownloadManager(Path("./cache")) as dm:
+            out_dir = EPUB_DIR
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
 
-        payload.output_path = str(out_path)
+            # NOTE: logic that should be async or threaded eventually
+            await upsert_fiction_toc(db, book, dm)
 
-        # NOTE: logic that should be async or threaded eventually
-        # upsert_fiction_toc(db, book, dm)
-        await asyncio.to_thread(upsert_fiction_toc, db, book, dm)
-
-        bcfg = BookConfig(
-            title=payload.title or book.title,
-            author=payload.author or book.author or "",
-            language=payload.language or book.language or "en",
-            cover_image=payload.cover_img
-            or (Url(book.cover_url) if book.cover_url else None)
-            or DEFAULT_COVER_URL,
-        )
-
-        overrides = {
-            k: getattr(payload, k)
-            for k in [
-                "include_images",
-                "include_chapter_titles",
-                "image_resize_max",
-                "epub_css_filepath",
-            ]
-            if getattr(payload, k) is not None
-        }
-
-        # export_book_to_epub_from_db(db, book, dm, ...)
-        await asyncio.to_thread(
-            export_book_to_epub_from_db,
-            db,
-            book,
-            dm=dm,
-            cfg=EbookGeneratorConfig(book_config=bcfg, **overrides),
-            chapter_list=payload.chapters or None,
-            out_path=out_path,
-        )
-
-        if payload.send_by_email:
-            payload.send_by_email.book_path = out_path
-            # We need to access the redis pool from ctx to schedule the next job
-            # ctx['redis'] is the pool in arq workers
-            arq_pool: ArqRedis = ctx["redis"]
-            await schedule_task(
-                db,
-                arq_pool,
-                TaskType.SEND_BOOK,
-                task.user_id,
-                payload.send_by_email.model_dump(),
+            bcfg = BookConfig(
+                title=payload.title or book.title,
+                author=payload.author or book.author or "",
+                language=payload.language or book.language or "en",
+                cover_image=payload.cover_img
+                or (Url(book.cover_url) if book.cover_url else None)
+                or DEFAULT_COVER_URL,
             )
 
-        sys.stderr.write("ERROR: " + str(task.payload) + "\n")
+            overrides = {
+                k: getattr(payload, k)
+                for k in [
+                    "include_images",
+                    "include_chapter_titles",
+                    "image_resize_max",
+                    "epub_css_filepath",
+                ]
+                if getattr(payload, k) is not None
+            }
+
+            await export_book_to_epub_from_db(
+                db,
+                book,
+                dm=dm,
+                cfg=EbookGeneratorConfig(book_config=bcfg, **overrides),
+                chapter_list=payload.chapters or None,
+                out_path=out_path,
+            )
+
+            if payload.send_by_email:
+                payload.send_by_email.book_path = str(out_path)
+                # We need to access the redis pool from ctx to schedule the next job
+                # ctx['redis'] is the pool in arq workers
+                arq_pool: ArqRedis = ctx["redis"]
+                await schedule_task(
+                    db,
+                    arq_pool,
+                    TaskType.SEND_BOOK,
+                    task.user_id,
+                    payload.send_by_email.model_dump(),
+                )
 
         # We update the task payload, the db is committed at the end of the task
         task.payload = payload.model_dump()
-
-        sys.stderr.write("ERROR: " + str(payload.model_dump()) + "\n")
-        sys.stderr.write("ERROR: " + str(task.payload) + "\n")
 
 
 async def send_book_task(ctx, task_id: int) -> None:

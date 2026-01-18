@@ -7,20 +7,20 @@ from sqlalchemy.orm import Session
 from mywbooks.providers.base import Fiction
 
 from .. import models
+from ..async_download_manager import AsyncDownloadManager
 from ..book import BookConfig, ChapterRef
-from ..download_manager import DownlaodManager
 from ..models import Book, Chapter
 from ..providers import Provider, ProviderKey, get_provider_by_key
 
 
-def upsert_royalroad_book_from_url(
-    db: Session, fiction_url: Url | str, dm: DownlaodManager
+async def upsert_royalroad_book_from_url(
+    db: Session, fiction_url: Url | str, dm: AsyncDownloadManager
 ) -> int:
     prov: Provider = get_provider_by_key(ProviderKey.ROYALROAD)
 
     # TODO: Combine with upsert_fiction_toc
 
-    fic: Fiction = prov.discover_fiction(dm, Url(str(fiction_url)))
+    fic: Fiction = await prov.discover_fiction(dm, Url(str(fiction_url)))
 
     book_id = _upsert_book_meta(
         db,

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 from abc import ABC, abstractmethod
@@ -10,8 +11,8 @@ from bs4 import BeautifulSoup, Tag
 from ebooklib import epub
 from pydantic_core import Url
 
+from mywbooks.async_download_manager import AsyncDownloadManager
 from mywbooks.book import BookConfig, Chapter, Image
-from mywbooks.download_manager import DownlaodManager
 
 
 @dataclass
@@ -76,14 +77,14 @@ class EbookGenerator:
     def __init__(
         self,
         book_id: str,
-        download_manager: DownlaodManager,
+        download_manager: AsyncDownloadManager,
         config: EbookGeneratorConfig,
         chapter_page_exacter: Optional[ChapterPageExtractor] = None,
     ):
         self.book_id = book_id
         self.config = config
         self.chapter_page_exacter = chapter_page_exacter
-        self.download_manager = download_manager
+        self.download_manager: AsyncDownloadManager = download_manager
         self.chapters = []
         self.images_new = {}
 
@@ -172,7 +173,7 @@ class EbookGenerator:
 
     # Export the generated Ebook as an epub
 
-    def export_as_epub(self, local_epub_filepath: Path) -> None:
+    async def export_as_epub(self, local_epub_filepath: Path) -> None:
         ebook = epub.EpubBook()
         # mandatory metadata
         ebook.set_identifier(self.book_id)
@@ -182,25 +183,34 @@ class EbookGenerator:
         ebook.set_language(cf.language)
         ebook.add_author(cf.author)
 
-        with open(self.config.epub_css_filepath, "rb") as f:
-            css = epub.EpubItem(
-                uid="default",
-                file_name=self.config.epub_css_filepath,  # This is a bit strange ?
-                media_type="text/css",
-                content=f.read(),
-            )
-            ebook.add_item(css)
+        def read_css():
+            with open(self.config.epub_css_filepath, "rb") as f:
+                return f.read()
+
+        css_content = await asyncio.to_thread(read_css)
+        css = epub.EpubItem(
+            uid="default",
+            file_name=self.config.epub_css_filepath,  # This is a bit strange ?
+            media_type="text/css",
+            content=css_content,
+        )
+        ebook.add_item(css)
 
         # Add cover image
-        cf.cover_image
         if cf.cover_image is not None:
             if isinstance(cf.cover_image, Url):
-                cover_img_data = self.download_manager.get_and_cache_image_data(
+                print(self.download_manager)
+
+                cover_img_data = await self.download_manager.get_and_cache_image_data(
                     cf.cover_image
                 )
             elif isinstance(cf.cover_image, Path):
-                with open(cf.cover_image, "rb") as f:
-                    cover_img_data = f.read()
+
+                def read_cover():
+                    with open(cf.cover_image, "rb") as f:
+                        return f.read()
+
+                cover_img_data = await asyncio.to_thread(read_cover)
             else:
                 assert False, "Unreachable"
             ebook.set_cover(self.config.epub_cover_image_path, cover_img_data)
@@ -226,9 +236,10 @@ class EbookGenerator:
 
         # Include the Images
         for _, im in self.images_new.items():
-            if not im.get_image_data(
+            image_data = await im.get_image_data_async(
                 self.download_manager, *self.config.image_resize_max
-            ):
+            )
+            if not image_data:
                 continue
 
             ebook.add_item(
@@ -236,10 +247,11 @@ class EbookGenerator:
                     uid=im.get_id(),
                     file_name=im.get_ebook_src(self.config.epub_images_path),
                     media_type=im.get_media_type(),
-                    content=im.image_data,
+                    content=image_data,
                 )
             )
 
         ebook.add_item(epub.EpubNcx())
         ebook.add_item(epub.EpubNav())
-        epub.write_epub(local_epub_filepath, ebook)
+
+        await asyncio.to_thread(epub.write_epub, local_epub_filepath, ebook)
