@@ -44,6 +44,9 @@ async def schedule_task(
         user_id=user_id,
         payload=payload,
     )
+
+    print(payload)
+
     db.add(task)
     db.commit()
     db.refresh(task)

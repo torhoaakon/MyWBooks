@@ -3,12 +3,12 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
-from mywbooks.book import BookConfig, Chapter
-from mywbooks.ebook_generator import EbookGenerator, EbookGeneratorConfig
-from mywbooks.providers.royalroad import RoyalRoadChapterPageExtractor
 from PIL import Image
 from pydantic_core import Url
 
+from mywbooks.book import BookConfig, Chapter
+from mywbooks.ebook_generator import EbookGenerator, EbookGeneratorConfig
+from mywbooks.providers.royalroad import RoyalRoadChapterPageExtractor
 from tests.fakes import FakeDownloadManager
 
 
@@ -44,7 +44,7 @@ def test_ebook_generator_exports_epub_offline(tmp_path: Path):
     )
     cfg = EbookGeneratorConfig(
         book_config=bc,
-        css_filepath=css_path,
+        epub_css_filepath=str(css_path),
         include_images=True,
         include_chapter_titles=True,
     )

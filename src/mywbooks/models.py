@@ -218,7 +218,7 @@ class DownloadBookTaskPayload(BaseModel):
 
 class SendBookTaskPayload(BaseModel):
     recipient_email: str
-    book_path: Path
+    book_path: str
     book_title: str
 
 

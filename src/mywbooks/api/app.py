@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from ssl import get_default_verify_paths
 from typing import Any, AsyncGenerator
 
 import dotenv
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
+from sqlalchemy.orm import Session
 
 from mywbooks.worker import WorkerSettings
 
@@ -12,11 +14,11 @@ dotenv.load_dotenv()
 
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..db import init_db
-from .auth import CurrentUser
+from ..db import get_db, init_db
+from .auth import CurrentUser, get_or_create_user_by_sub
 from .routers import books, tasks, users
 
 
@@ -52,8 +54,6 @@ api_router.include_router(books.router, prefix="/books", tags=["books"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(users.router, prefix="/user", tags=["user"])
 
-app.include_router(api_router)
-
 
 @api_router.get("/health")
 def health() -> dict[str, Any]:
@@ -69,3 +69,13 @@ def me(user: CurrentUser) -> dict[str, Any]:
         "role": user.get("role"),
         "aud": user.get("aud"),
     }
+
+
+@api_router.get("/profile")
+def profile(user: CurrentUser, db: Session = Depends(get_db)) -> dict[str, Any]:
+    local_user = get_or_create_user_by_sub(db, user)
+
+    return {"id": local_user.id}
+
+
+app.include_router(api_router)

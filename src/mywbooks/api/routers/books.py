@@ -6,7 +6,7 @@ from typing import Optional
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, HttpUrl, model_validator
+from pydantic import BaseModel, HttpUrl, Json, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -226,8 +226,8 @@ async def download_book_now(
 @router.get("/tasks/{task_id}/send_by_email")
 async def send_download_by_email(
     task_id: int,
-    recipient_email: str | None,
     user: CurrentUser,
+    recipient_email: str | None = None,
     db: Session = Depends(get_db),
     arq_pool: ArqRedis = Depends(get_arq_pool),
 ) -> SendByEmailResponse:
@@ -262,7 +262,7 @@ async def send_download_by_email(
 
     new_payload = models.SendBookTaskPayload(
         recipient_email=recipient_email,
-        book_path=payload.output_path or EPUB_DIR,
+        book_path=payload.output_path or str(EPUB_DIR),
         book_title="",
     )
 
@@ -278,7 +278,7 @@ async def send_download_by_email(
         return SendByEmailResponse(ok=True, task_id=task.id, task_status=task.status)
 
     elif task.status == models.TaskStatus.SUCCEEDED:
-        if payload.output_path is None or not payload.output_path.is_file():
+        if payload.output_path is None or not Path(payload.output_path).is_file():
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="The download file path is not valid",
