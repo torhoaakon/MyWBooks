@@ -28,10 +28,10 @@ def get_smtp() -> smtp_settings:
     if not all([host, port, user, pswd]):
         raise ValueError("jP settings are not configured.")
 
-    if not port.isdigit(): # type: ignore
+    if not port.isdigit():  # type: ignore
         raise ValueError("SMTP_PORT is not intager.")
 
-    return smtp_settings(host, port = int(port), user, pswd)  # type: ignore
+    return smtp_settings(host, int(port), user, pswd)  # type: ignore
 
 
 def send_ebook_email(

@@ -83,7 +83,6 @@ def ensure_chapter_content(
     return count
 
 
-## This should specify a collection of chapters
 def export_book_to_epub_from_db(
     db: Session,
     book: models.Book,
