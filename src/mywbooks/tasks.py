@@ -1,20 +1,17 @@
 # Example factory that returns the right WebBook subclass from a DB Book row
 import asyncio
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Concatenate
+from typing import Any, Awaitable, Callable, Concatenate, cast
 
 from arq.connections import ArqRedis
 from pydantic_core import Url
 from sqlalchemy.orm import Session
 
-from mywbooks import models
-from mywbooks.book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig
-from mywbooks.ebook_generator import EbookGeneratorConfig
-from mywbooks.email_sender import send_ebook_email
-from mywbooks.task_cleanup import register_cleanup
-
 from .async_download_manager import AsyncDownloadManager
+from .book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig
 from .db import SessionLocal
+from .ebook_generator import EbookGeneratorConfig
+from .email_sender import send_ebook_email
 from .models import (
     Book,
     DownloadBookTaskPayload,
@@ -24,6 +21,7 @@ from .models import (
     TaskType,
 )
 from .services.book_ops import export_book_to_epub_from_db, upsert_fiction_toc
+from .task_cleanup import register_cleanup
 from .utils import utcnow
 
 REGISTERED_TASK_FUNCTIONS = []
@@ -38,9 +36,9 @@ async def schedule_task(
 ) -> Task:
 
     # Create a Task row
-    task = models.Task(
+    task = Task(
         type=type,
-        status=models.TaskStatus.QUEUED,
+        status=TaskStatus.QUEUED,
         user_id=user_id,
         payload=payload,
     )
@@ -61,7 +59,7 @@ async def schedule_task(
 
 
 CtxType = dict[Any, Any]
-FuncType = Callable[Concatenate[CtxType, Session, models.Task, ...], Awaitable[None]]
+FuncType = Callable[Concatenate[CtxType, Session, Task, ...], Awaitable[None]]
 
 
 def register_task(func: FuncType):
@@ -72,7 +70,7 @@ def register_task(func: FuncType):
         db = SessionLocal()
 
         try:
-            task = db.get(models.Task, task_id)
+            task = db.get(Task, task_id)
 
             if not task:
                 return  # nothing to do
@@ -107,73 +105,83 @@ def register_task(func: FuncType):
 
 
 # ####
+# ## Helpers
+# ####
+
+
+def get_dm(ctx: CtxType) -> AsyncDownloadManager:
+    return cast(AsyncDownloadManager, ctx["dm"])
+
+
+# ####
 # ##  Task functions
 # ####
 
 
 @register_task
-async def download_book_task(ctx: CtxType, db: Session, task: models.Task) -> None:
+async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     payload = DownloadBookTaskPayload.model_validate(task.payload)
 
     book = db.get(Book, payload.book_id)
     if not book:
         raise RuntimeError(f"Book {payload.book_id} not found")
 
-    async with AsyncDownloadManager(Path("./cache")) as dm:
-        out_dir = EPUB_DIR
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
+    out_dir = EPUB_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
 
-        # NOTE: logic that should be async or threaded eventually
-        await upsert_fiction_toc(db, book, dm)
+    dm = get_dm(ctx)
 
-        bcfg = BookConfig(
-            title=payload.title or book.title,
-            author=payload.author or book.author or "",
-            language=payload.language or book.language or "en",
-            cover_image=payload.cover_img
-            or (Url(book.cover_url) if book.cover_url else None)
-            or DEFAULT_COVER_URL,
-        )
+    # NOTE: logic that should be async or threaded eventually
+    await upsert_fiction_toc(db, book, dm)
 
-        overrides = {
-            k: getattr(payload, k)
-            for k in [
-                "include_images",
-                "include_chapter_titles",
-                "image_resize_max",
-                "epub_css_filepath",
-            ]
-            if getattr(payload, k) is not None
-        }
+    bcfg = BookConfig(
+        title=payload.title or book.title,
+        author=payload.author or book.author or "",
+        language=payload.language or book.language or "en",
+        cover_image=payload.cover_img
+        or (Url(book.cover_url) if book.cover_url else None)
+        or DEFAULT_COVER_URL,
+    )
 
-        await export_book_to_epub_from_db(
+    overrides = {
+        k: getattr(payload, k)
+        for k in [
+            "include_images",
+            "include_chapter_titles",
+            "image_resize_max",
+            "epub_css_filepath",
+        ]
+        if getattr(payload, k) is not None
+    }
+
+    await export_book_to_epub_from_db(
+        db,
+        book,
+        dm=dm,
+        cfg=EbookGeneratorConfig(book_config=bcfg, **overrides),
+        chapter_list=payload.chapters or None,
+        out_path=out_path,
+    )
+
+    if payload.send_by_email:
+        payload.send_by_email.book_path = str(out_path)
+
+        arq_pool: ArqRedis = ctx["redis"]
+        await schedule_task(
             db,
-            book,
-            dm=dm,
-            cfg=EbookGeneratorConfig(book_config=bcfg, **overrides),
-            chapter_list=payload.chapters or None,
-            out_path=out_path,
+            arq_pool,
+            TaskType.SEND_BOOK,
+            task.user_id,
+            payload.send_by_email.model_dump(),
         )
-
-        if payload.send_by_email:
-            payload.send_by_email.book_path = str(out_path)
-
-            arq_pool: ArqRedis = ctx["redis"]
-            await schedule_task(
-                db,
-                arq_pool,
-                TaskType.SEND_BOOK,
-                task.user_id,
-                payload.send_by_email.model_dump(),
-            )
 
     # We update the task payload, the db is committed at the end of the task
     task.payload = payload.model_dump()
 
 
 @register_task
-async def send_book_task(ctx: CtxType, db: Session, task: models.Task) -> None:
+async def send_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     payload = SendBookTaskPayload.model_validate(task.payload)
 
     # Send Email (blocking I/O, run in thread)

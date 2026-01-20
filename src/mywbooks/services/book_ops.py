@@ -27,7 +27,11 @@ def provider_for(book: models.Book) -> str:
 
 
 async def upsert_fiction_toc(
-    db: Session, book: models.Book, dm: AsyncDownloadManager, *, do_inserts: bool = False
+    db: Session,
+    book: models.Book,
+    dm: AsyncDownloadManager,
+    *,
+    do_inserts: bool = False,
 ) -> int:
     """
     Updates Chapter rows for this book (provider-specific ToC discovery).
