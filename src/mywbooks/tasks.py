@@ -184,9 +184,8 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
 async def send_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     payload = SendBookTaskPayload.model_validate(task.payload)
 
-    # Send Email (blocking I/O, run in thread)
-    await asyncio.to_thread(
-        send_ebook_email,
+    # Send Email (Async)
+    await send_ebook_email(
         recipient_email=payload.recipient_email,
         ebook_path=Path(payload.book_path),
         book_title=payload.book_title,
