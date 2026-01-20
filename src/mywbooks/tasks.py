@@ -1,27 +1,34 @@
 # Example factory that returns the right WebBook subclass from a DB Book row
 import asyncio
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Concatenate, cast
+from typing import Any, Awaitable, Callable, Concatenate
 
 from arq.connections import ArqRedis
 from pydantic_core import Url
 from sqlalchemy.orm import Session
 
+from mywbooks.book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig
+from mywbooks.ebook_generator import EbookGeneratorConfig, ExtractOptions
+from mywbooks.email_sender import send_ebook_email
+from mywbooks.task_cleanup import register_cleanup
+
 from .async_download_manager import AsyncDownloadManager
-from .book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig
 from .db import SessionLocal
-from .ebook_generator import EbookGeneratorConfig
-from .email_sender import send_ebook_email
 from .models import (
     Book,
+    Chapter,
     DownloadBookTaskPayload,
     SendBookTaskPayload,
     Task,
     TaskStatus,
     TaskType,
 )
-from .services.book_ops import export_book_to_epub_from_db, upsert_fiction_toc
-from .task_cleanup import register_cleanup
+from .providers import get_provider_by_key
+from .services.book_ops import (
+    ensure_chapter_content,
+    export_book_to_epub_from_db,
+    upsert_fiction_toc,
+)
 from .utils import utcnow
 
 REGISTERED_TASK_FUNCTIONS = []
@@ -52,24 +59,54 @@ async def schedule_task(
             await arq_pool.enqueue_job("download_book_task", task.id)
         case TaskType.SEND_BOOK:
             await arq_pool.enqueue_job("send_book_task", task.id)
+        case TaskType.FETCH_CHAPTER:
+            raise RuntimeError(
+                "Fetch Chapter tasks should be scheduled directly via arq with a job_id"
+            )
         case _:
             raise RuntimeError("Unreachable")
 
     return task
 
 
+# ####
+# ## Wrappers
+# ####
+
 CtxType = dict[Any, Any]
-FuncType = Callable[Concatenate[CtxType, Session, Task, ...], Awaitable[None]]
 
 
-def register_task(func: FuncType):
-    async def try_execute_task(ctx, task_id: int):
+def register_task(
+    func: Callable[Concatenate[CtxType, Session, ...], Awaitable[None]],
+) -> Callable[Concatenate[CtxType, ...], Awaitable[None]]:
+    async def inner(ctx, **kwargs):
         # NOTE: We are using a sync DB session in an async context.
         # ideally we would run this in a thread executor or use AsyncSession.
         # For now, we assume these are fast enough.
         db = SessionLocal()
 
         try:
+            await func(ctx, db, **kwargs)
+
+        finally:
+            db.close()
+
+    inner.__name__ = func.__name__
+    REGISTERED_TASK_FUNCTIONS.append(inner)
+
+    return inner
+
+
+def register_task_with_status(
+    func: Callable[Concatenate[CtxType, Session, Task, ...], Awaitable[None]],
+) -> Callable[Concatenate[CtxType, Session, ...], Awaitable[None]]:
+
+    @register_task
+    async def inner(ctx: CtxType, db: Session, **kwargs):
+        task_id = kwargs.get("task_id")
+
+        try:
+
             task = db.get(Task, task_id)
 
             if not task:
@@ -80,7 +117,6 @@ def register_task(func: FuncType):
             task.attempts += 1
             db.commit()
 
-            # Execute the task
             await func(ctx, db, task)
 
             task.status = TaskStatus.SUCCEEDED
@@ -94,23 +130,10 @@ def register_task(func: FuncType):
                 task.error = str(e)
                 task.finished_at = utcnow()
                 db.commit()
-            raise  # let arq retry (if configured) or handle failure
-        finally:
-            db.close()
+            raise e  # let arq retry (if configured) or handle failure
 
-    try_execute_task.__name__ = func.__name__
-    REGISTERED_TASK_FUNCTIONS.append(try_execute_task)
-
-    return try_execute_task
-
-
-# ####
-# ## Helpers
-# ####
-
-
-def get_dm(ctx: CtxType) -> AsyncDownloadManager:
-    return cast(AsyncDownloadManager, ctx["dm"])
+    inner.__name__ = func.__name__
+    return inner
 
 
 # ####
@@ -119,6 +142,41 @@ def get_dm(ctx: CtxType) -> AsyncDownloadManager:
 
 
 @register_task
+async def fetch_chapter_task(ctx: CtxType, db: Session, chapter_id: int) -> None:
+    chapter = db.get(Chapter, chapter_id)
+    if not chapter:
+        return  # Maybe deleted?
+
+    if chapter.is_fetched:
+        return  # Already done
+
+    book = db.get(Book, chapter.book_id)
+    if not book:
+        return
+
+    dm: AsyncDownloadManager = ctx["dm"]
+    prov = get_provider_by_key(book.provider)
+
+    # Download & Cache (Async I/O)
+    soup = await dm.get_and_cache_html(Url(chapter.source_url))
+
+    # Extract (Blocking CPU - should be in thread ideally, but small enough for now)
+    page = prov.extract_chapter(
+        soup,
+        options=ExtractOptions(
+            url=chapter.source_url, strict=True, fallback_title=chapter.title
+        ),
+    )
+
+    if page and page.content:
+        chapter.title = page.title or chapter.title
+        chapter.content_html = str(page.content)
+        chapter.fetched_at = utcnow()
+        chapter.is_fetched = True
+        db.commit()
+
+
+@register_task_with_status
 async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     payload = DownloadBookTaskPayload.model_validate(task.payload)
 
@@ -126,15 +184,26 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     if not book:
         raise RuntimeError(f"Book {payload.book_id} not found")
 
+    dm: AsyncDownloadManager = ctx["dm"]
     out_dir = EPUB_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
 
-    dm = get_dm(ctx)
-
-    # NOTE: logic that should be async or threaded eventually
+    # 1. Update TOC (Discover new chapters)
     await upsert_fiction_toc(db, book, dm)
 
+    # 2. Identify missing chapters
+    arq_pool = ctx["redis"]
+    await ensure_chapter_content(
+        db,
+        book.id,
+        arq_pool,
+        chapters_by_id=payload.chapters,
+        max_retries=30,
+        check_completion_sleep_delay=5,
+    )
+
+    # 3. Generate EPUB
     bcfg = BookConfig(
         title=payload.title or book.title,
         author=payload.author or book.author or "",
@@ -155,6 +224,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
         if getattr(payload, k) is not None
     }
 
+    # Pass dm=dm to allow image downloads during generation if needed
     await export_book_to_epub_from_db(
         db,
         book,
@@ -167,7 +237,6 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     if payload.send_by_email:
         payload.send_by_email.book_path = str(out_path)
 
-        arq_pool: ArqRedis = ctx["redis"]
         await schedule_task(
             db,
             arq_pool,
@@ -180,7 +249,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     task.payload = payload.model_dump()
 
 
-@register_task
+@register_task_with_status
 async def send_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     payload = SendBookTaskPayload.model_validate(task.payload)
 

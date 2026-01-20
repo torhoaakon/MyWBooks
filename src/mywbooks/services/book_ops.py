@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
+from arq import ArqRedis
 from pydantic_core import Url
 from sqlalchemy.orm import Session
 
@@ -47,43 +49,57 @@ async def upsert_fiction_toc(
 
 async def ensure_chapter_content(
     db: Session,
-    book: models.Book,
-    dm: AsyncDownloadManager,
+    book_id: int,
+    arq_pool: ArqRedis,
     *,
-    chapters: list[models.Chapter] | None,  # If None, fetch all missing
+    chapters_by_id: list[int] | None,  # If None, fetch all missing
+    max_retries: int = 360,
+    check_completion_sleep_delay=5,
 ) -> int:
     """
     Fill missing content for chapters of a book.
     Returns number of chapters fetched.
     """
 
-    prov = get_provider_by_key(book.provider)
-    if not chapters:
-        # Find all missing chapters
-        q_missing = db.query(models.Chapter).filter(
-            models.Chapter.book_id == book.id,
-            models.Chapter.content_html.is_(None),
-        )
-        chapters = q_missing.all()
+    # 1. Identify missing chapters
+    q_missing = db.query(models.Chapter).filter(
+        models.Chapter.book_id == book_id,
+        models.Chapter.is_fetched == False,  # noqa: E712
+    )
+    if chapters_by_id:
+        q_missing = q_missing.filter(models.Chapter.index.in_(chapters_by_id))
 
-    count = 0
-    for ch in chapters:
-        soup = await dm.get_and_cache_html(Url(ch.source_url))
-        page = prov.extract_chapter(
-            soup,
-            options=ExtractOptions(
-                url=ch.source_url, strict=True, fallback_title=ch.title
-            ),
-        )
-        if not page or not page.content:
-            continue
-        ch.title = page.title or ch.title
-        ch.content_html = str(page.content)
-        ch.fetched_at = utcnow()
-        ch.is_fetched = True
-        count += 1
+    missing_chapters = q_missing.all()
+    missing_ids = [ch.id for ch in missing_chapters]
 
-    db.commit()
+    # 2. Schedule fetch tasks for missing chapters (with deduplication)
+    for ch_id in missing_ids:
+        await arq_pool.enqueue_job(
+            "fetch_chapter_task",
+            ch_id,
+            _job_id=f"fetch_chapter:{ch_id}",
+            _keep_result=3600,  # Keep result for 1 hour
+        )
+
+    # 3. Wait for all chapters to be fetched (Polling loop)
+    # We poll the DB to check `is_fetched` status.
+    # Timeout after: max_retries * 5s = 30 minutes (by default)
+    for _ in range(max_retries):
+        pending_count = db.query(models.Chapter).filter(
+            models.Chapter.book_id == book_id,
+            models.Chapter.is_fetched == False,  # noqa: E712
+        )
+        if chapters_by_id:
+            pending_count = pending_count.filter(models.Chapter.id.in_(chapters_by_id))
+
+        count = pending_count.count()
+        if count == 0:
+            break
+
+        await asyncio.sleep(check_completion_sleep_delay)
+    else:
+        raise RuntimeError("Timed out waiting for chapters to download")
+
     return count
 
 
@@ -94,36 +110,14 @@ async def export_book_to_epub_from_db(
     out_path: Path,
     # List of chapter IDs to include; if None, include all
     chapter_list: list[int] | None = None,
-    # exp_options: ExportOptions,
     *,
     dm: AsyncDownloadManager,
     **kw: dict[str, Any],
-    # css_path: Path,
-    # out_path: Path,
-    # include_images: bool = True,
-    # include_chapter_titles: bool = True,
-    # image_resize_max: tuple[int, int] = (1024, 1024),
 ) -> Path:
     """
     Build an EPUB purely from DB rows (Book + fetched Chapters).
-    If some chapters aren’t fetched yet, call ensure_chapter_content() first.
+    If some chapters aren’t fetched yet, they will be skipped.
     """
-
-    # Ensure at least one ToC row exists (no-op if already present)
-    # NOTE: This should not be necessary, since this info is retrieved on book insertion
-    if not book.chapters:
-        await upsert_fiction_toc(db, book, dm)
-
-    # If anything is missing HTML, fetch it now.
-    q_missing = db.query(models.Chapter).filter(
-        models.Chapter.book_id == book.id,
-        models.Chapter.content_html.is_(None),
-    )
-    if chapter_list is not None:
-        q_missing = q_missing.filter(models.Chapter.id.in_(chapter_list))
-    missing = q_missing.all()
-    if missing:
-        await ensure_chapter_content(db, book, dm, chapters=missing)
 
     # Prepare generator config from DB-only metadata
     gen = EbookGenerator(

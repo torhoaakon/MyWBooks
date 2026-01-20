@@ -40,7 +40,9 @@ class AddRoyalRoadBody(BaseModel):
 
 
 class DownloadBookNowBody(BaseModel):
-    chapters: Optional[list[int]] = None
+    chapters: list[int] | None = (
+        None  # This is referring to the chapter id.  TODO:  We could enable custom order
+    )
 
     title: Optional[str] = None
     cover_img: Optional[str] = None
