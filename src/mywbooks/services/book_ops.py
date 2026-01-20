@@ -67,7 +67,7 @@ async def ensure_chapter_content(
         models.Chapter.is_fetched == False,  # noqa: E712
     )
     if chapters_by_id:
-        q_missing = q_missing.filter(models.Chapter.index.in_(chapters_by_id))
+        q_missing = q_missing.filter(models.Chapter.id.in_(chapters_by_id))
 
     missing_chapters = q_missing.all()
     missing_ids = [ch.id for ch in missing_chapters]
@@ -81,18 +81,24 @@ async def ensure_chapter_content(
             _keep_result=3600,  # Keep result for 1 hour
         )
 
+    db.commit()
+
     # 3. Wait for all chapters to be fetched (Polling loop)
     # We poll the DB to check `is_fetched` status.
     # Timeout after: max_retries * 5s = 30 minutes (by default)
     for _ in range(max_retries):
-        pending_count = db.query(models.Chapter).filter(
+        # We MUST rollback or expire the session to see updates from other processes
+        # in standard transaction isolation levels.
+        db.rollback()
+
+        pending_query = db.query(models.Chapter).filter(
             models.Chapter.book_id == book_id,
             models.Chapter.is_fetched == False,  # noqa: E712
         )
         if chapters_by_id:
-            pending_count = pending_count.filter(models.Chapter.id.in_(chapters_by_id))
+            pending_query = pending_query.filter(models.Chapter.id.in_(chapters_by_id))
 
-        count = pending_count.count()
+        count = pending_query.count()
         if count == 0:
             break
 
