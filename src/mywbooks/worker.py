@@ -4,11 +4,11 @@ import os
 
 from arq.connections import RedisSettings
 
-from mywbooks.tasks import download_book_task, send_book_task
+from .tasks import REGISTERED_TASK_FUNCTIONS
 
 
 class WorkerSettings:
-    functions = [download_book_task, send_book_task]
+    functions = REGISTERED_TASK_FUNCTIONS
     redis_settings = RedisSettings.from_dsn(
         os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
     )

@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-from ssl import get_default_verify_paths
 from typing import Any, AsyncGenerator
 
 import dotenv
 from arq import create_pool
-from arq.connections import ArqRedis, RedisSettings
 from sqlalchemy.orm import Session
 
 from mywbooks.async_download_manager import AsyncDownloadManager
-from mywbooks.worker import WorkerSettings
 
 dotenv.load_dotenv()
 
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..db import get_db, init_db
@@ -25,6 +22,9 @@ from .routers import books, tasks, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # The import is here in order to ensure that all the tasks are registered
+    from mywbooks.worker import WorkerSettings
+
     # Startup
     init_db()
     app.state.arq_pool = await create_pool(WorkerSettings.redis_settings)
