@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 import os
 from collections.abc import Buffer
 from pathlib import Path
@@ -77,7 +78,10 @@ class AsyncDownloadManager:
             if self.is_valid_cache(cache_filename):
                 return await self.read_valid_cache_file(cache_filename)
 
-        print(f"Downloading '{url}'")
+        import sys
+
+        sys.stderr.write(f"INFO: Downloading '{url}'")
+
         response = await self.client.get(str(url))
         response.raise_for_status()
         return response.content

@@ -75,10 +75,7 @@ async def ensure_chapter_content(
     # 2. Schedule fetch tasks for missing chapters (with deduplication)
     for ch_id in missing_ids:
         await arq_pool.enqueue_job(
-            "fetch_chapter_task",
-            ch_id,
-            _job_id=f"fetch_chapter:{ch_id}",
-            _keep_result=3600,  # Keep result for 1 hour
+            "fetch_chapter_task", ch_id, _job_id=f"fetch_chapter:{ch_id}"
         )
 
     db.commit()

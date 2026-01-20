@@ -1,5 +1,6 @@
 # Example factory that returns the right WebBook subclass from a DB Book row
 import asyncio
+import functools
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Concatenate
 
@@ -59,10 +60,6 @@ async def schedule_task(
             await arq_pool.enqueue_job("download_book_task", task.id)
         case TaskType.SEND_BOOK:
             await arq_pool.enqueue_job("send_book_task", task.id)
-        case TaskType.FETCH_CHAPTER:
-            raise RuntimeError(
-                "Fetch Chapter tasks should be scheduled directly via arq with a job_id"
-            )
         case _:
             raise RuntimeError("Unreachable")
 
@@ -79,19 +76,19 @@ CtxType = dict[Any, Any]
 def register_task(
     func: Callable[Concatenate[CtxType, Session, ...], Awaitable[None]],
 ) -> Callable[Concatenate[CtxType, ...], Awaitable[None]]:
-    async def inner(ctx, **kwargs):
+
+    @functools.wraps(func)
+    async def inner(ctx, *args, **kwargs):
         # NOTE: We are using a sync DB session in an async context.
         # ideally we would run this in a thread executor or use AsyncSession.
         # For now, we assume these are fast enough.
         db = SessionLocal()
-
         try:
-            await func(ctx, db, **kwargs)
+            await func(ctx, db, *args, **kwargs)
 
         finally:
             db.close()
 
-    inner.__name__ = func.__name__
     REGISTERED_TASK_FUNCTIONS.append(inner)
 
     return inner
@@ -102,11 +99,9 @@ def register_task_with_status(
 ) -> Callable[Concatenate[CtxType, Session, ...], Awaitable[None]]:
 
     @register_task
-    async def inner(ctx: CtxType, db: Session, **kwargs):
-        task_id = kwargs.get("task_id")
-
+    @functools.wraps(func)
+    async def inner(ctx: CtxType, db: Session, task_id: int, *args, **kwargs):
         try:
-
             task = db.get(Task, task_id)
 
             if not task:
@@ -117,7 +112,7 @@ def register_task_with_status(
             task.attempts += 1
             db.commit()
 
-            await func(ctx, db, task)
+            await func(ctx, db, task, *args, **kwargs)
 
             task.status = TaskStatus.SUCCEEDED
             task.finished_at = utcnow()
@@ -132,7 +127,6 @@ def register_task_with_status(
                 db.commit()
             raise e  # let arq retry (if configured) or handle failure
 
-    inner.__name__ = func.__name__
     return inner
 
 
@@ -142,7 +136,9 @@ def register_task_with_status(
 
 
 @register_task
-async def fetch_chapter_task(ctx: CtxType, db: Session, chapter_id: int) -> None:
+async def fetch_chapter_task(
+    ctx: CtxType, db: Session, chapter_id: int, *args, **kw
+) -> None:
     chapter = db.get(Chapter, chapter_id)
     if not chapter:
         return  # Maybe deleted?
@@ -181,6 +177,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     payload = DownloadBookTaskPayload.model_validate(task.payload)
 
     book = db.get(Book, payload.book_id)
+
     if not book:
         raise RuntimeError(f"Book {payload.book_id} not found")
 
@@ -245,7 +242,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
             payload.send_by_email.model_dump(),
         )
 
-    # We update the task payload, the db is committed at the end of the task
+    payload.output_path = str(out_path)
     task.payload = payload.model_dump()
 
 

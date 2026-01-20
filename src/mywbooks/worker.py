@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -9,7 +10,8 @@ from .async_download_manager import AsyncDownloadManager
 from .tasks import REGISTERED_TASK_FUNCTIONS, CtxType
 
 
-async def startup(ctx: CtxType) -> None:
+async def startup(ctx: dict[Any, Any]) -> None:
+    logging.basicConfig(level=logging.INFO)
     ctx["dm"] = AsyncDownloadManager()
 
 
