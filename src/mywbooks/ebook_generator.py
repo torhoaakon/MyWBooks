@@ -4,7 +4,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import Awaitable, NamedTuple, Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
@@ -199,8 +199,6 @@ class EbookGenerator:
         # Add cover image
         if cf.cover_image is not None:
             if isinstance(cf.cover_image, Url):
-                print(self.download_manager)
-
                 cover_img_data = await self.download_manager.get_and_cache_image_data(
                     cf.cover_image
                 )
@@ -235,10 +233,20 @@ class EbookGenerator:
             ebook.spine.append(epub_chapter)
 
         # Include the Images
+        img_data_futures: list[Awaitable[bytes | None]] = []
+        imgs = []
+
         for _, im in self.images_new.items():
-            image_data = await im.get_image_data_async(
-                self.download_manager, *self.config.image_resize_max
+            imgs.append(im)
+            img_data_futures.append(
+                im.get_image_data_async(
+                    self.download_manager, *self.config.image_resize_max
+                )
             )
+
+        image_data_array = await asyncio.gather(*img_data_futures)
+
+        for image_data, im in zip(image_data_array, imgs):
             if not image_data:
                 continue
 
