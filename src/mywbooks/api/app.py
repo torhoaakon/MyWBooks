@@ -74,11 +74,11 @@ def me(user: CurrentUser) -> dict[str, Any]:
     }
 
 
-@api_router.get("/profile")
-def profile(user: CurrentUser, db: Session = Depends(get_db)) -> dict[str, Any]:
-    local_user = get_or_create_user_by_sub(db, user)
-
-    return {"id": local_user.id}
+from fastapi.responses import RedirectResponse
+...
+@api_router.get("/profile", deprecated=True)
+def profile_deprecated() -> RedirectResponse:
+    return RedirectResponse(url="/api/user/profile")
 
 
 app.include_router(api_router)

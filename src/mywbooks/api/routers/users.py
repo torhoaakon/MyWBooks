@@ -138,3 +138,11 @@ async def set_kindle_email(
     db.commit()
 
     return {"ok": True}
+
+
+@router.get("/profile", response_model=UserOut)
+async def get_user_profile(
+    user: CurrentUser, db: Session = Depends(get_db)
+) -> UserOut:
+    local_user = get_or_create_user_by_sub(db, user)
+    return UserOut.model_validate(local_user)
