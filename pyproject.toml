@@ -23,6 +23,8 @@ dependencies = [
     "arq>=0.26.3",
     "httpx>=0.28.1",
     "aiosmtplib>=5.0.0",
+    "authx>=1.5.2",
+    "passlib[argon2]>=1.7.4",
 ]
 
 [build-system]
@@ -40,6 +42,10 @@ dev = [
 
 [tool.uv.sources]
 mywbooks = { workspace = true }
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.mypy]
 python_version = "3.13"

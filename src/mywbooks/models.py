@@ -91,6 +91,8 @@ class User(Base):
         String(255), nullable=True, unique=True, index=True
     )
 
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     kindle_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow())
 
