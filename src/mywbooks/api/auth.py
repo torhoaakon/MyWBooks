@@ -99,28 +99,36 @@ def _decode_supabase_jwt(token: str) -> UserClaims:
 def verify_jwt(cred: HTTPAuthorizationCredentials = Depends(bearer)) -> UserClaims:
     token = cred.credentials
 
-    # 1. Try Local Auth (AuthX)
+    # 1. Try Local Auth (Manual JWT decode to avoid AuthX bugs)
     try:
-        # AuthX.get_payload returns the payload dict if valid, else raises
-        payload = authx.get_payload(token)
-        # AuthX typically uses 'sub' for the user identifier
+        payload = jwt.decode(
+            token,
+            AUTHX_SECRET_KEY,
+            algorithms=["HS256"],
+            options={"verify_signature": True},
+        )
         return UserClaims(
             sub=payload.get("sub", ""),
-            email=payload.get("email", ""),
+            # AuthX nests 'data' inside 'extra'
+            email=payload.get("extra", {}).get("email", ""),
             provider="local",
         )
     except Exception:
         # 2. Fall back to Supabase if local fails
-        if not SUPABASE_ENABLED:
+        if SUPABASE_ENABLED:
+            try:
+                return _decode_supabase_jwt(token)
+            except Exception as e:
+                # If Supabase also fails, raise an error
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, 
+                    detail=f"Invalid token: {e}"
+                )
+        else:
+            # If Supabase isn't enabled and local failed, raise error
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token (Local auth failed and Supabase is not configured)",
-            )
-        try:
-            return _decode_supabase_jwt(token)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}"
+                detail="Invalid token",
             )
 
 
