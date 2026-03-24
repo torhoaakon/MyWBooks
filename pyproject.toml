@@ -24,7 +24,7 @@ dependencies = [
     "httpx>=0.28.1",
     "aiosmtplib>=5.0.0",
     "authx>=1.5.2",
-    "passlib[argon2]>=1.7.4",
+    "argon2-cffi>=25.1.0",
 ]
 
 [build-system]

@@ -1,8 +1,9 @@
 import uuid
 
 import sqlalchemy as sqla
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Depends, HTTPException, status
-from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy.orm import Session
 
@@ -12,15 +13,19 @@ from mywbooks.db import get_db
 
 router = APIRouter()
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+ph = PasswordHasher()
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return ph.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        ph.verify(hashed_password, plain_password)
+        return True
+    except VerifyMismatchError:
+        return False
 
 
 # ####
