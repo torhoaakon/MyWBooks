@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl, Json, model_validator
-from sqlalchemy import select
+from sqlalchemy import asc, desc, func, select
 from sqlalchemy.orm import Session
 
 from mywbooks import models
@@ -85,6 +86,48 @@ class BookOut(BaseModel):
         )
 
 
+class DownloadOptions(BaseModel):
+    include_images: bool = True
+    include_chapter_titles: bool = True
+    include_description: bool = False
+    custom_title: str | None = None
+    custom_cover_url: str | None = None
+
+
+class BookDetailOut(BaseModel):
+    id: int
+    provider: str
+    source_url: str
+    title: str
+    author: str | None = None
+    language: str | None = None
+    cover_url: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    chapter_count: int
+    user_options: DownloadOptions
+
+
+class ChapterOut(BaseModel):
+    id: int
+    index: int
+    title: str
+    is_fetched: bool
+    fetched_at: datetime | None = None
+    created_at: datetime
+
+
+class ChaptersPage(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[ChapterOut]
+
+
+class SaveOptionsBody(BaseModel):
+    options: DownloadOptions
+
+
 # ==== Response Messages ====
 
 
@@ -156,6 +199,180 @@ def list_my_books(user: CurrentUser, db: Session = Depends(get_db)) -> list[Book
     )
     rows = db.execute(q).scalars().all()
     return [BookOut.from_model(b) for b in rows]
+
+
+@router.get("/{book_id}", response_model=BookDetailOut)
+def get_book_detail(
+    book_id: int, user: CurrentUser, db: Session = Depends(get_db)
+) -> BookDetailOut:
+    """Full book detail: metadata, description, chapter count, and saved user options."""
+    local_user = get_or_create_user_by_sub(db, user)
+
+    book = db.get(models.Book, book_id)
+    if not book:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == local_user.id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    chapter_count: int = (
+        db.execute(
+            select(func.count()).select_from(models.Chapter).where(
+                models.Chapter.book_id == book_id
+            )
+        ).scalar()
+        or 0
+    )
+
+    user_options = DownloadOptions(**(link.download_options or {}))
+
+    return BookDetailOut(
+        id=book.id,
+        provider=book.provider.value if hasattr(book.provider, "value") else str(book.provider),
+        source_url=book.source_url,
+        title=book.title,
+        author=book.author,
+        language=book.language,
+        cover_url=book.cover_url,
+        description=book.description,
+        tags=book.tags,
+        chapter_count=chapter_count,
+        user_options=user_options,
+    )
+
+
+@router.get("/{book_id}/chapters", response_model=ChaptersPage)
+def get_book_chapters(
+    book_id: int,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=250, ge=1, le=1000),
+    sort: str = Query(default="asc", pattern="^(asc|desc)$"),
+) -> ChaptersPage:
+    """Paginated chapter list for a book. Frontend typically fetches page_size=250 and pages locally."""
+    local_user = get_or_create_user_by_sub(db, user)
+
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == local_user.id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    total: int = (
+        db.execute(
+            select(func.count()).select_from(models.Chapter).where(
+                models.Chapter.book_id == book_id
+            )
+        ).scalar()
+        or 0
+    )
+
+    order = asc(models.Chapter.index) if sort == "asc" else desc(models.Chapter.index)
+    chapters = db.scalars(
+        select(models.Chapter)
+        .where(models.Chapter.book_id == book_id)
+        .order_by(order)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+
+    return ChaptersPage(
+        total=total,
+        page=page,
+        page_size=page_size,
+        items=[
+            ChapterOut(
+                id=ch.id,
+                index=ch.index,
+                title=ch.title,
+                is_fetched=ch.is_fetched,
+                fetched_at=ch.fetched_at,
+                created_at=ch.created_at,
+            )
+            for ch in chapters
+        ],
+    )
+
+
+@router.get("/{book_id}/tasks")
+def get_book_tasks(
+    book_id: int,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Download tasks scoped to a single book."""
+    local_user = get_or_create_user_by_sub(db, user)
+
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == local_user.id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    tasks = db.scalars(
+        select(models.Task)
+        .where(
+            models.Task.user_id == local_user.id,
+            func.json_extract(models.Task.payload, "$.book_id") == book_id,
+        )
+        .order_by(models.Task.created_at.desc())
+    ).all()
+
+    return [
+        {
+            "id": t.id,
+            "type": t.type,
+            "status": t.status,
+            "book_id": book_id,
+            "payload": t.payload,
+            "error": t.error,
+            "created_at": t.created_at.isoformat(),
+            "started_at": t.started_at.isoformat() if t.started_at else None,
+            "finished_at": t.finished_at.isoformat() if t.finished_at else None,
+        }
+        for t in tasks
+    ]
+
+
+@router.put("/{book_id}/options", response_model=ResponseMsg)
+def save_book_options(
+    book_id: int,
+    body: DownloadOptions,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ResponseMsg:
+    """Persist per-user, per-book download options."""
+    local_user = get_or_create_user_by_sub(db, user)
+
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == local_user.id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    link.download_options = body.model_dump()
+    db.commit()
+    return ResponseMsg(ok=True)
 
 
 @router.delete("/{book_id}/unsubscribe")

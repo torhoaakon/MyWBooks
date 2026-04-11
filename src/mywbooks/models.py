@@ -119,6 +119,8 @@ class Book(Base):
     author: Mapped[str | None] = mapped_column(String(255))
     language: Mapped[str] = mapped_column(String(16), default="en")
     cover_url: Mapped[str | None] = mapped_column(String(1024))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utcnow(), onupdate=utcnow()
@@ -175,6 +177,7 @@ class BookUser(Base):
     in_library: Mapped[bool] = mapped_column(Boolean, default=True)
     want_send: Mapped[bool] = mapped_column(Boolean, default=False)  # queue to send
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    download_options: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="library")
     book: Mapped[Book] = relationship(back_populates="users")
