@@ -80,7 +80,7 @@ class RoyalRoadProvider(Provider):
 
         data = await dm.get_and_cache_data(fiction_url)
         html = data.decode("utf-8")
-        meta, chapter_urls = _parse_fiction_page(str(fiction_url), html, strict=True)
+        meta, chapter_entries = _parse_fiction_page(str(fiction_url), html, strict=True)
 
         def chapter_uid_from_url(url: Url) -> str:
             lid = _chapter_id_from_url(url)
@@ -88,16 +88,15 @@ class RoyalRoadProvider(Provider):
                 raise RuntimeError(
                     "RoyalRoadProvider failed to identify chapter id from url"
                 )
-
             return f"{self.provider_key()}:{lid}"
 
         refs = [
             ChapterRef(
                 id=chapter_uid_from_url(Url(u)),
                 url=Url(u),
-                title=None,
+                title=title,
             )
-            for u in chapter_urls
+            for u, title in chapter_entries
         ]
         return Fiction(
             uid=uid,
@@ -250,7 +249,7 @@ def _parse_fiction_page(
     html: str,
     chapter_toc_strategies: int = 0,
     strict: bool = True,
-) -> tuple[BookConfig, list[str]]:
+) -> tuple[BookConfig, list[tuple[str, str | None]]]:
     """
     Extract book metadata (title, author, cover, language) and all chapter URLs
     from a RoyalRoad fiction page.
@@ -302,16 +301,15 @@ def _parse_fiction_page(
 
 def _extract_toc_chapter_links(
     base_url: str, bs: BeautifulSoup, *, strategies: int = 0, strict: bool
-) -> list[str]:
+) -> list[tuple[str, str | None]]:
     """
     Try multiple strategies to find chapter links. If none found and strict=True,
     raise FictionParseError with selectors tried.
+    Returns (url, title) pairs.
     """
     tried: list[str] = []
 
     strategies = strategies or 2  ## 0 means default:  2
-
-    print("strategies", strategies)
 
     # 1) Canonical ToC container
     toc = bs.select_one("#chapters")
@@ -324,8 +322,6 @@ def _extract_toc_chapter_links(
     # 2) Common table/list containers people see on RR skins
     if strategies >= 2:
         selection = "div.chapters, div.chapter-list, div.fic-contents, section"
-        # selection = "table, ul, ol, div.chapter-list, div.fic-contents, section"
-
         containers = bs.select(selection)
         tried.append(selection)
         for c in containers:
@@ -350,8 +346,11 @@ def _extract_toc_chapter_links(
     return []
 
 
-def _collect_rr_chapter_links(base_url: str, scope: BeautifulSoup | Tag) -> list[str]:
-    seen: dict[str, str] = {}
+def _collect_rr_chapter_links(
+    base_url: str, scope: BeautifulSoup | Tag
+) -> list[tuple[str, str | None]]:
+    """Return (url, title) pairs for each chapter link, in appearance order."""
+    seen: dict[str, tuple[str, str | None]] = {}
     for a in scope.select('a[href*="/chapter/"]'):
         href = str(a.get("href", "")).strip()
         if not href:
@@ -359,14 +358,7 @@ def _collect_rr_chapter_links(base_url: str, scope: BeautifulSoup | Tag) -> list
         full = urljoin(base_url, href)
         chap_id = _chapter_id_from_url(Url(full))
         if chap_id and chap_id not in seen:
-            seen[chap_id] = full
-
-    # Sort chapter by id
-    # def _chapter_sort_key(u: str) -> tuple[int, str]:
-    #     # matches .../chapter/<number>/
-    #     m = re.search(r"/chapter/(\d+)", u)
-    #     return (int(m.group(1)) if m else 10**9, u)
-    #
-    # return sorted(seen.values(), key=_chapter_sort_key)
+            title = a.get_text(strip=True) or None
+            seen[chap_id] = (full, title)
 
     return list(seen.values())  # preserves appearance order
