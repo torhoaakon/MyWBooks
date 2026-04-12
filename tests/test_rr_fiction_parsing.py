@@ -39,8 +39,11 @@ def test_parse_fiction_page_case1():
     assert "cover123.jpg" in str(meta.cover_image)
 
     assert len(chapter_urls) == 3
-    assert all(u.startswith("https://www.royalroad.com") for u in chapter_urls)
-    assert "/chapter/1" in chapter_urls[0]
+    urls = [u for u, _title in chapter_urls]
+    assert all(u.startswith("https://www.royalroad.com") for u in urls)
+    assert "/chapter/1" in urls[0]
+    titles = [t for _u, t in chapter_urls]
+    assert titles[0] == "Chapter One"
 
 
 def test_parse_fiction_page_case1_chapters_fail():
@@ -77,7 +80,8 @@ def test_parse_fiction_page_case2():
     )
     assert meta.title == "Fallback Fiction"
     assert len(links) == 2
-    assert links[0].endswith("/chapter/10")
+    assert links[0][0].endswith("/chapter/10")
+    assert links[0][1] == "Ch 10"
 
 
 def test_parse_fiction_page_case2_chapters_fail():
