@@ -134,6 +134,8 @@ class BookConfig:
     language: str
     author: str
     cover_image: Url | Path  # Maybe this should be image type
+    description: str | None = None
+    tags: list[str] | None = None
 
     @staticmethod
     def from_model(book: models.Book) -> "BookConfig":

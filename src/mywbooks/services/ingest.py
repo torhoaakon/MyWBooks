@@ -70,6 +70,8 @@ def _upsert_book_meta(
             author=meta.author,
             language=meta.language,
             cover_url=str(meta.cover_image),
+            description=meta.description,
+            tags=meta.tags,
         )
         db.add(book)
         db.commit()
@@ -79,6 +81,10 @@ def _upsert_book_meta(
         book.title = meta.title or book.title
         book.author = meta.author or book.author
         book.cover_url = str(meta.cover_image) or book.cover_url
+        if meta.description:
+            book.description = meta.description
+        if meta.tags:
+            book.tags = meta.tags
         db.commit()
 
     return book.id

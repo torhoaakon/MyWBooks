@@ -12,6 +12,13 @@ FICTION_HTML = """
       <img src="https://royalroadcdn.com/covers/cover123.jpg">
     </div>
 
+    <div class="description">A great story about magic and adventure.</div>
+
+    <span class="tags">
+      <a class="fiction-tag">Fantasy</a>
+      <a class="fiction-tag">Magic</a>
+    </span>
+
     <div class="chapters">
       <a href="/fiction/5555/my-rr-fiction/chapter/1">Chapter One</a>
       <a href="/fiction/5555/my-rr-fiction/chapter/2">Chapter Two</a>
@@ -44,6 +51,9 @@ def test_parse_fiction_page_case1():
     assert "/chapter/1" in urls[0]
     titles = [t for _u, t in chapter_urls]
     assert titles[0] == "Chapter One"
+
+    assert meta.description == "A great story about magic and adventure."
+    assert meta.tags == ["Fantasy", "Magic"]
 
 
 def test_parse_fiction_page_case1_chapters_fail():

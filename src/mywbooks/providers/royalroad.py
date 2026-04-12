@@ -285,6 +285,14 @@ def _parse_fiction_page(
         lang_meta.get("content") if lang_meta and lang_meta.get("content") else "en"
     ).lower()
 
+    # Description
+    desc_node = bs.select_one("div.description")
+    description = desc_node.get_text(separator="\n", strip=True) if desc_node else None
+
+    # Tags / genres
+    tag_nodes = bs.select("span.tags a, a.fiction-tag")
+    tags: list[str] | None = [t.get_text(strip=True) for t in tag_nodes] or None
+
     # Chapters:
     chapter_links = _extract_toc_chapter_links(
         base_url, bs, strict=strict, strategies=chapter_toc_strategies
@@ -295,6 +303,8 @@ def _parse_fiction_page(
         language=language,
         author=author,
         cover_image=Url(cover),
+        description=description,
+        tags=tags,
     )
     return meta, chapter_links
 
