@@ -50,6 +50,10 @@ class UserOut(BaseModel):
     email: str
 
 
+class DeviceConfig(BaseModel):
+    kindle_email: str | None = None
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -146,3 +150,23 @@ async def get_user_profile(
 ) -> UserOut:
     local_user = get_or_create_user_by_sub(db, user)
     return UserOut.model_validate(local_user)
+
+
+@router.get("/device", response_model=DeviceConfig)
+async def get_device_config(
+    user: CurrentUser, db: Session = Depends(get_db)
+) -> DeviceConfig:
+    """Return the current user's device delivery configuration."""
+    local_user = get_or_create_user_by_sub(db, user)
+    return DeviceConfig(kindle_email=local_user.kindle_email)
+
+
+@router.put("/device", response_model=DeviceConfig)
+async def set_device_config(
+    body: DeviceConfig, user: CurrentUser, db: Session = Depends(get_db)
+) -> DeviceConfig:
+    """Set (or clear) the user's device delivery email."""
+    local_user = get_or_create_user_by_sub(db, user)
+    local_user.kindle_email = body.kindle_email
+    db.commit()
+    return DeviceConfig(kindle_email=local_user.kindle_email)

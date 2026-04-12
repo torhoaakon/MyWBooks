@@ -442,6 +442,61 @@ async def download_book_now(
     return DownloadBookNowResponse(ok=True, task_id=task.id, task_status=task.status)
 
 
+@router.post("/{book_id}/send")
+async def send_book_to_device(
+    book_id: int,
+    user: CurrentUser,
+    body: DownloadBookNowBody | None = None,
+    db: Session = Depends(get_db),
+    arq_pool: ArqRedis = Depends(get_arq_pool),
+) -> DownloadBookNowResponse:
+    """
+    Queue a download + auto-send job for a book. The finished EPUB is emailed to
+    the user's configured device address.
+    """
+    local_user = get_or_create_user_by_sub(db, user)
+
+    if not local_user.kindle_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No device email configured. Set your device email in your profile settings.",
+        )
+
+    rel = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == local_user.id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not rel:
+        raise HTTPException(
+            status_code=403, detail="The user is not subscribed to this book."
+        )
+
+    payload: dict[str, Any] = {"book_id": book_id}
+    if body:
+        payload |= body.model_dump()
+
+    # Embed the send-on-finish instruction directly in the download payload.
+    # The worker checks for `send_by_email` and dispatches the email task automatically.
+    payload["send_by_email"] = {
+        "recipient_email": local_user.kindle_email,
+        "book_path": "",   # worker fills this in after generating the EPUB
+        "book_title": "",  # worker fills this in
+    }
+
+    task = await schedule_task(
+        db,
+        arq_pool,
+        models.TaskType.DOWNLOAD_BOOK,
+        local_user.id,
+        payload,
+    )
+
+    return DownloadBookNowResponse(ok=True, task_id=task.id, task_status=task.status)
+
+
 @router.get("/tasks/{task_id}/send_by_email")
 async def send_download_by_email(
     task_id: int,
