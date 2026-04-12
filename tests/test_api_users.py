@@ -44,6 +44,7 @@ def test_login_user_success(client, db_session):
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
+    assert "refresh_token" in data
     assert data["token_type"] == "bearer"
 
 def test_login_user_not_found(client):
@@ -58,6 +59,40 @@ def test_login_user_wrong_password(client, db_session):
     resp = client.post("/api/user/login", json={"email": email, "password": "wrong-password"})
     assert resp.status_code == 401
     assert "Incorrect password" in resp.json()["detail"]
+
+def test_refresh_token_returns_new_access_token(client, db_session):
+    email = "refresh-test@example.com"
+    client.post("/api/user/register", json={"email": email, "password": "password"})
+    login_resp = client.post("/api/user/login", json={"email": email, "password": "password"})
+    refresh_token = login_resp.json()["refresh_token"]
+
+    resp = client.post("/api/user/refresh", json={"refresh_token": refresh_token})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+    # Should not include a refresh token — this endpoint only issues access tokens
+    assert "refresh_token" not in data
+
+
+def test_refresh_token_invalid(client):
+    resp = client.post("/api/user/refresh", json={"refresh_token": "not-a-valid-token"})
+    assert resp.status_code == 401
+
+
+def test_refresh_token_new_access_token_works(client, db_session):
+    """Access token issued via /refresh is accepted by protected endpoints."""
+    email = "refresh-use-test@example.com"
+    client.post("/api/user/register", json={"email": email, "password": "password"})
+    login_resp = client.post("/api/user/login", json={"email": email, "password": "password"})
+    refresh_token = login_resp.json()["refresh_token"]
+
+    new_token = client.post("/api/user/refresh", json={"refresh_token": refresh_token}).json()["access_token"]
+
+    resp = client.get("/api/user/profile", headers={"Authorization": f"Bearer {new_token}"})
+    assert resp.status_code == 200
+    assert "id" in resp.json()
+
 
 def test_protected_route_with_local_token(client):
     # 1. Register and Login to get token

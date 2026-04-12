@@ -3,6 +3,7 @@ import uuid
 import sqlalchemy as sqla
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from authx.schema import RequestToken
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy.orm import Session
@@ -56,6 +57,7 @@ class DeviceConfig(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
 
 
@@ -123,12 +125,54 @@ async def login_user(body: UserLoginBody, db: Session = Depends(get_db)) -> Toke
             detail="Incorrect password. Please try again.",
         )
 
-    # 5. Create access token using AuthX
+    # 5. Create access + refresh tokens
     access_token = authx.create_access_token(
         uid=user.auth_subject, data={"email": user.email}
     )
+    refresh_token = authx.create_refresh_token(uid=user.auth_subject)
 
-    return Token(access_token=access_token, token_type="bearer")
+    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+
+
+class RefreshBody(BaseModel):
+    refresh_token: str
+
+
+class AccessToken(BaseModel):
+    access_token: str
+    token_type: str
+
+
+@router.post("/refresh", response_model=AccessToken)
+async def refresh_access_token(body: RefreshBody, db: Session = Depends(get_db)) -> AccessToken:
+    """Exchange a valid refresh token for a new access token."""
+    try:
+        req_token = RequestToken(token=body.refresh_token, type="refresh", location="headers")
+        payload = authx.verify_token(req_token, verify_type=True)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    # Verify the subject still exists in our DB
+    user = db.execute(
+        sqla.select(models.User).where(
+            models.User.auth_provider == "local",
+            models.User.auth_subject == payload.sub,
+        )
+    ).scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    access_token = authx.create_access_token(
+        uid=user.auth_subject, data={"email": user.email}
+    )
+    return AccessToken(access_token=access_token, token_type="bearer")
 
 
 @router.post("/set_kindle_email", status_code=201)
