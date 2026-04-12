@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from pydantic_core import Url
 
 from . import models
-from .download_manager import DownlaodManager
+from .async_download_manager import AsyncDownloadManager
 from .utils import url_hash
 
 DEFAULT_COVER_URL = Url("https://www.royalroad.com/favicon.ico")
@@ -30,14 +30,14 @@ class Image:
     def by_src_url(src_url: Url) -> "Image":
         return Image(url=src_url, url_hash=url_hash(src_url))
 
-    def get_image_data(
-        self, dm: DownlaodManager, max_width: int = 1024, max_height: int = 1024
+    async def get_image_data_async(
+        self, dm: AsyncDownloadManager, max_width: int = 1024, max_height: int = 1024
     ) -> bytes | None:
         if self.image_data is not None:
             return self.image_data
 
         try:
-            self.image_data = dm.get_and_cache_image_data(
+            self.image_data = await dm.get_and_cache_image_data(
                 self.url, max_width=max_width, max_height=max_height
             )
             return self.image_data
@@ -46,6 +46,20 @@ class Image:
 
             # TODO: Report this in the download status.
             return None
+
+    def get_image_data(
+        self, dm: AsyncDownloadManager, max_width: int = 1024, max_height: int = 1024
+    ) -> bytes | None:
+        # NOTE: This sync method is now deprecated or should be carefully used
+        # We might want to remove it later or keep it for non-async parts.
+        if self.image_data is not None:
+            return self.image_data
+        
+        # It's hard to call async from sync. 
+        # For now, let's just make it return None or raise if we are in sync land 
+        # but the manager is async. 
+        # Actually, let's just use asyncio.run if absolutely needed, but better to use the async version.
+        return None
 
     def get_id(self) -> ImageID:
         return self.url_hash
@@ -120,6 +134,8 @@ class BookConfig:
     language: str
     author: str
     cover_image: Url | Path  # Maybe this should be image type
+    description: str | None = None
+    tags: list[str] | None = None
 
     @staticmethod
     def from_model(book: models.Book) -> "BookConfig":

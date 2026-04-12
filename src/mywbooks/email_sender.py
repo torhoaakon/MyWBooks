@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
-import smtplib
 from dataclasses import dataclass
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from functools import lru_cache
 from pathlib import Path
+
+import aiosmtplib
+import anyio
 
 
 @dataclass
@@ -26,7 +28,7 @@ def get_smtp() -> smtp_settings:
     pswd = os.getenv("SMTP_PASSWORD")
 
     if not all([host, port, user, pswd]):
-        raise ValueError("jP settings are not configured.")
+        raise ValueError("SMTP settings are not configured.")
 
     if not port.isdigit():  # type: ignore
         raise ValueError("SMTP_PORT is not intager.")
@@ -34,13 +36,13 @@ def get_smtp() -> smtp_settings:
     return smtp_settings(host, int(port), user, pswd)  # type: ignore
 
 
-def send_ebook_email(
+async def send_ebook_email(
     recipient_email: str,
     ebook_path: Path,
     book_title: str,
 ) -> None:
     """
-    Sends an email with the generated ebook as an attachment.
+    Sends an email with the generated ebook as an attachment asynchronously.
     """
 
     cfg = get_smtp()
@@ -54,13 +56,20 @@ def send_ebook_email(
     msg.attach(MIMEText("Please find your ebook attached.", "plain"))
 
     # Attach the ebook
-    with open(ebook_path, "rb") as f:
-        part = MIMEApplication(f.read(), Name=ebook_path.name)
+    async with await anyio.open_file(ebook_path, "rb") as f:
+        file_content = await f.read()
+        part = MIMEApplication(file_content, Name=ebook_path.name)
+
     part["Content-Disposition"] = f'attachment; filename="{ebook_path.name}"'
     msg.attach(part)
 
-    # Send the email
-    with smtplib.SMTP(cfg.host, cfg.port) as server:
-        server.starttls()
-        server.login(cfg.user, cfg.pswd)
-        server.send_message(msg)
+    # Send the email asynchronously
+    await aiosmtplib.send(
+        msg,
+        hostname=cfg.host,
+        port=cfg.port,
+        username=cfg.user,
+        password=cfg.pswd,
+        use_tls=False,
+        start_tls=True,
+    )

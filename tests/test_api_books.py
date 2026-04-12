@@ -34,9 +34,14 @@ def test_add_royalroad_book_by_url(client, db_session: Session, monkeypatch):
     # Monkeypatch ingest to just return the known id
     from mywbooks.services import ingest
 
-    def _fake_func(db, url, dm):
+    async def _fake_func(db, url, dm):
         return created_id
 
+    from mywbooks.api import deps
+
+    client.app.dependency_overrides[deps.get_dm] = lambda: None
+
+    client.app.state.dm = None
     monkeypatch.setattr(ingest, "upsert_royalroad_book_from_url", _fake_func)
 
     # Call the API

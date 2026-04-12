@@ -1,4 +1,5 @@
 import time
+from datetime import timedelta
 
 from sqlalchemy import select
 
@@ -8,7 +9,7 @@ from ..task_cleanup import TASK_RETENTION, run_task_cleanup
 from ..utils import ensure_aware, utcnow
 
 
-def cleanup_expired_tasks() -> int:
+def cleanup_expired_tasks(ignore_retention=False) -> int:
     """
     Delete tasks whose finished_at is older than their retention.
     Returns number of deleted tasks.
@@ -21,7 +22,10 @@ def cleanup_expired_tasks() -> int:
         tasks = db.scalars(stmt).all()
 
         for task in tasks:
-            retention = TASK_RETENTION.get(task.status)
+            if ignore_retention:
+                retention = timedelta(0)
+            else:
+                retention = TASK_RETENTION.get(task.status)
             if retention is None:
                 # no retention rule => keep
                 continue
@@ -35,6 +39,15 @@ def cleanup_expired_tasks() -> int:
         db.commit()
 
     return deleted
+
+
+def cleanup_everything() -> None:
+    inp = input("Are you sure you want to delete all tasks? [N/y]")
+    if inp.lower()[0] != "y":
+        return
+
+    deleted = cleanup_expired_tasks(ignore_retention=True)
+    print(f"[cleanup] deleted {deleted} expired tasks")
 
 
 def cleanup_once() -> None:
@@ -67,6 +80,8 @@ if __name__ == "__main__":
         sys.stderr.write("Too many arguments\n")
 
     match sys.argv[1]:
+        case "everything":
+            cleanup_everything()
         case "once":
             cleanup_once()
         case "loop":

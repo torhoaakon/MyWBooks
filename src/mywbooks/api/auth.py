@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Annotated, Any, TypedDict
 
 import jwt
+from authx import AuthX, AuthXConfig
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
@@ -12,33 +13,35 @@ from sqlalchemy.orm import Session
 
 from mywbooks import models
 
+# --- AuthX Configuration (Local) ---
+AUTHX_SECRET_KEY = os.getenv("AUTHX_SECRET_KEY", "change-me-in-production")
+authx_config = AuthXConfig(
+    JWT_SECRET_KEY=AUTHX_SECRET_KEY,
+    JWT_ALGORITHM="HS256",
+    JWT_TOKEN_LOCATION=["headers"],
+)
+authx = AuthX(config=authx_config)
+
+
+# --- Supabase Configuration (External) ---
 ISSUER = os.getenv("SUPABASE_ISSUER", "").rstrip("/")
 AUDIENCE = os.getenv("SUPABASE_AUDIENCE", "authenticated")
 JWKS_URL = os.getenv("SUPABASE_JWKS_URL", "").strip()
 JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()  # for HS256 projects
 
-if not ISSUER:
-    raise RuntimeError("Missing SUPABASE_ISSUER environment variable.")
+# Note: We don't raise RuntimeError anymore, just disable Supabase if envs are missing
+SUPABASE_ENABLED = bool(ISSUER and (JWKS_URL or JWT_SECRET))
 
-if not (JWKS_URL or JWT_SECRET):
-    raise RuntimeError(
-        "Provide either SUPABASE_JWKS_URL (RS/ES) or SUPABASE_JWT_SECRET (HS256)."
-    )
 
 bearer = HTTPBearer(auto_error=True)
 
 
 class UserClaims(TypedDict, total=False):
-    sub: str  # subject (user id)
+    sub: str
     email: str
     role: str
     aud: str
-    # Unused:
-    #  iss: str  # issuer
-    #  iat: int  # issued at (epoch seconds)
-    #  exp: int  # expiration (epoch seconds)
-    #  nbf: int  # not before (epoch seconds)
-    #  jti: str  # JWT ID (unique token id)
+    provider: str  # Added to distinguish "local" vs "supabase"
 
 
 @lru_cache
@@ -46,8 +49,11 @@ def _jwks_client() -> PyJWKClient | None:
     return PyJWKClient(JWKS_URL) if JWKS_URL else None
 
 
-def _decode_jwt(token: str) -> UserClaims:
+def _decode_supabase_jwt(token: str) -> UserClaims:
     """Decode a Supabase JWT, auto-detecting algorithm from header."""
+    if not SUPABASE_ENABLED:
+        raise ValueError("Supabase authentication is not configured.")
+
     header = jwt.get_unverified_header(token)
     alg = header.get("alg")
 
@@ -66,8 +72,7 @@ def _decode_jwt(token: str) -> UserClaims:
             issuer=ISSUER,
             options={"require": ["exp", "iat"], "verify_signature": True},
         )
-        assert isinstance(res, dict), "Assuming return type is dict"
-        return UserClaims(**res)  # type: ignore [typeddict-item]
+        return UserClaims(**res, provider="supabase")  # type: ignore
 
     if alg in {"RS256", "RS512", "ES256", "ES384"}:
         if not JWKS_URL:
@@ -75,7 +80,7 @@ def _decode_jwt(token: str) -> UserClaims:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"{alg} token but SUPABASE_JWKS_URL not set",
             )
-        signing_key = _jwks_client().get_signing_key_from_jwt(token).key  # type: ignore[union-attr]
+        signing_key = _jwks_client().get_signing_key_from_jwt(token).key  # type: ignore
         res = jwt.decode(
             token,
             signing_key,
@@ -84,8 +89,7 @@ def _decode_jwt(token: str) -> UserClaims:
             issuer=ISSUER,
             options={"require": ["exp", "iat"], "verify_signature": True},
         )
-        assert isinstance(res, dict), "Assuming return type is dict"
-        return UserClaims(**res)  # type: ignore [typeddict-item]
+        return UserClaims(**res, provider="supabase")  # type: ignore
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Unsupported alg: {alg}"
@@ -93,32 +97,47 @@ def _decode_jwt(token: str) -> UserClaims:
 
 
 def verify_jwt(cred: HTTPAuthorizationCredentials = Depends(bearer)) -> UserClaims:
-    if cred.scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Bearer token"
-        )
+    token = cred.credentials
 
+    # 1. Try Local Auth (Manual JWT decode to avoid AuthX bugs)
     try:
-        return _decode_jwt(cred.credentials)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
+        payload = jwt.decode(
+            token,
+            AUTHX_SECRET_KEY,
+            algorithms=["HS256"],
+            options={"verify_signature": True},
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token:\n\n {e}"
+        return UserClaims(
+            sub=payload.get("sub", ""),
+            # AuthX nests 'data' inside 'extra'
+            email=payload.get("extra", {}).get("email", ""),
+            provider="local",
         )
+    except Exception:
+        # 2. Fall back to Supabase if local fails
+        if SUPABASE_ENABLED:
+            try:
+                return _decode_supabase_jwt(token)
+            except Exception as e:
+                # If Supabase also fails, raise an error
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, 
+                    detail=f"Invalid token: {e}"
+                )
+        else:
+            # If Supabase isn't enabled and local failed, raise error
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
 
 
 def get_or_create_user_by_sub(db: Session, claims: UserClaims) -> models.User:
     sub = claims.get("sub")
+    provider = claims.get("provider", "local")
+
     if not sub:
         raise HTTPException(status_code=401, detail="JWT missing 'sub' claim")
-
-    # Optional: detect your provider from ISSUER
-    provider = "supabase"
 
     u = db.execute(
         select(models.User).where(

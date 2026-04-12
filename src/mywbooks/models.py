@@ -91,6 +91,8 @@ class User(Base):
         String(255), nullable=True, unique=True, index=True
     )
 
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     kindle_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow())
 
@@ -117,6 +119,8 @@ class Book(Base):
     author: Mapped[str | None] = mapped_column(String(255))
     language: Mapped[str] = mapped_column(String(16), default="en")
     cover_url: Mapped[str | None] = mapped_column(String(1024))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utcnow(), onupdate=utcnow()
@@ -173,6 +177,7 @@ class BookUser(Base):
     in_library: Mapped[bool] = mapped_column(Boolean, default=True)
     want_send: Mapped[bool] = mapped_column(Boolean, default=False)  # queue to send
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    download_options: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="library")
     book: Mapped[Book] = relationship(back_populates="users")
@@ -194,31 +199,31 @@ class TaskType(StrEnum):
 
 class DownloadBookTaskPayload(BaseModel):
     book_id: int
-    chapters: Optional[list[int]]
+    chapters: Optional[list[int]] = None
 
     # Metadata overrides
-    title: Optional[str]
-    language: Optional[str]
-    cover_img: Optional[Url]
-    author: Optional[str]
-    description: Optional[str]  # Ignore for now
+    title: Optional[str] = None
+    language: Optional[str] = None
+    cover_img: Optional[Url] = None
+    author: Optional[str] = None
+    description: Optional[str] = None  # Ignore for now
 
     # Processing options
-    include_images: Optional[bool]
-    include_chapter_titles: Optional[bool]
-    image_resize_max: Optional[int]
-    epub_css_filepath: Optional[str]
+    include_images: Optional[bool] = None
+    include_chapter_titles: Optional[bool] = None
+    image_resize_max: Optional[int] = None
+    epub_css_filepath: Optional[str] = None
 
     # On finished
-    send_by_email: Optional[SendBookTaskPayload]
+    send_by_email: Optional[SendBookTaskPayload] = None
 
     # Output
-    output_path: Optional[Path]
+    output_path: Optional[str] = None
 
 
 class SendBookTaskPayload(BaseModel):
     recipient_email: str
-    book_path: Path
+    book_path: str
     book_title: str
 
 

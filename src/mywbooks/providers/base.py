@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from pydantic_core import Url
 
 from mywbooks.book import BookConfig, ChapterRef
-from mywbooks.download_manager import DownlaodManager
+from mywbooks.async_download_manager import AsyncDownloadManager
 from mywbooks.ebook_generator import ChapterPageContent, ExtractOptions
 
 
@@ -53,7 +53,7 @@ class Provider(ABC):
 
     # Discover metadata + ToC from a fiction page
     @abstractmethod
-    def discover_fiction(self, dm: DownlaodManager, fiction_url: Url) -> Fiction: ...
+    async def discover_fiction(self, dm: AsyncDownloadManager, fiction_url: Url) -> Fiction: ...
 
     # Extract a chapter’s title+content from its page
     @abstractmethod

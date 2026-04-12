@@ -3,13 +3,14 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
-from mywbooks.book import BookConfig, Chapter
-from mywbooks.ebook_generator import EbookGenerator, EbookGeneratorConfig
-from mywbooks.providers.royalroad import RoyalRoadChapterPageExtractor
+import pytest
 from PIL import Image
 from pydantic_core import Url
 
-from tests.fakes import FakeDownloadManager
+from mywbooks.book import BookConfig, Chapter
+from mywbooks.ebook_generator import EbookGenerator, EbookGeneratorConfig
+from mywbooks.providers.royalroad import RoyalRoadChapterPageExtractor
+from tests.fakes import FakeAsyncDownloadManager
 
 
 def make_jpeg_bytes(w=120, h=80) -> bytes:
@@ -19,7 +20,8 @@ def make_jpeg_bytes(w=120, h=80) -> bytes:
     return b.getvalue()
 
 
-def test_ebook_generator_exports_epub_offline(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_ebook_generator_exports_epub_offline(tmp_path: Path):
     # Prepare CSS file expected by generator
     css_path = tmp_path / "kindle.css"
     css_path.write_text("body { font-family: serif; }", encoding="utf-8")
@@ -27,7 +29,7 @@ def test_ebook_generator_exports_epub_offline(tmp_path: Path):
     # Fake download bytes for cover and an in-chapter image
     cover_url = "https://example.test/cover.jpg"
     img1_url = "https://example.test/img1.jpg"
-    fdm = FakeDownloadManager(
+    fdm = FakeAsyncDownloadManager(
         tmp_path,
         {
             cover_url: make_jpeg_bytes(400, 600),
@@ -44,7 +46,7 @@ def test_ebook_generator_exports_epub_offline(tmp_path: Path):
     )
     cfg = EbookGeneratorConfig(
         book_config=bc,
-        css_filepath=css_path,
+        epub_css_filepath=str(css_path),
         include_images=True,
         include_chapter_titles=True,
     )
@@ -67,7 +69,7 @@ def test_ebook_generator_exports_epub_offline(tmp_path: Path):
     gen.add_chapter_page(chapter_html, src_url="https://example.test/ch1")
 
     out = tmp_path / "out.epub"
-    gen.export_as_epub(out)
+    await gen.export_as_epub(out)
 
     # Preview the epub
     # system(f"zathura '{out}'")

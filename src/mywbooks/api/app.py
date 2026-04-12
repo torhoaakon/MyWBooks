@@ -1,26 +1,38 @@
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator
-
 import dotenv
 
 dotenv.load_dotenv()
 
 from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, FastAPI
+from arq import create_pool
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
-from ..db import init_db
-from .auth import CurrentUser
+from mywbooks.async_download_manager import AsyncDownloadManager
+
+from ..db import get_db, init_db
+from .auth import CurrentUser, get_or_create_user_by_sub
 from .routers import books, tasks, users
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # The import is here in order to ensure that all the tasks are registered
+    from mywbooks.worker import WorkerSettings
+
     # Startup
     init_db()
+    app.state.arq_pool = await create_pool(WorkerSettings.redis_settings)
+    app.state.dm = AsyncDownloadManager()
+
     yield
+    # Shutdown
+    await app.state.dm.close()
+    await app.state.arq_pool.close()
 
 
 app = FastAPI(
@@ -45,8 +57,6 @@ api_router.include_router(books.router, prefix="/books", tags=["books"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(users.router, prefix="/user", tags=["user"])
 
-app.include_router(api_router)
-
 
 @api_router.get("/health")
 def health() -> dict[str, Any]:
@@ -62,3 +72,13 @@ def me(user: CurrentUser) -> dict[str, Any]:
         "role": user.get("role"),
         "aud": user.get("aud"),
     }
+
+
+from fastapi.responses import RedirectResponse
+...
+@api_router.get("/profile", deprecated=True)
+def profile_deprecated() -> RedirectResponse:
+    return RedirectResponse(url="/api/user/profile")
+
+
+app.include_router(api_router)

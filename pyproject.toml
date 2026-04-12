@@ -18,9 +18,13 @@ dependencies = [
     "pyjwt>=2.9",
     "sqlalchemy>=2.0.43",
     "python-dotenv>=1.0.1",
-    "dramatiq[redis,watch]>=1.18.0",
     "alembic>=1.13.1",
     "email-validator>=2.2.0",
+    "arq>=0.26.3",
+    "httpx>=0.28.1",
+    "aiosmtplib>=5.0.0",
+    "authx>=1.5.2",
+    "argon2-cffi>=25.1.0",
 ]
 
 [build-system]
@@ -32,11 +36,16 @@ dev = [
     "honcho>=2.0.0",
     "mywbooks",
     "pytest>=8.4.2",
+    "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
 ]
 
 [tool.uv.sources]
 mywbooks = { workspace = true }
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.mypy]
 python_version = "3.13"

@@ -2,6 +2,7 @@
 cache
 out
 var
+*log
 
 # Env
 .env
@@ -24,5 +25,5 @@ wheels/
 mywbooks.db
 TODO
 dump.rdb
-
 tags
+
