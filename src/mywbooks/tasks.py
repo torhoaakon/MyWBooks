@@ -1,6 +1,7 @@
 # Example factory that returns the right WebBook subclass from a DB Book row
 import asyncio
 import functools
+import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Concatenate
 
@@ -31,6 +32,8 @@ from .services.book_ops import (
     upsert_fiction_toc,
 )
 from .utils import utcnow
+
+logger = logging.getLogger(__name__)
 
 REGISTERED_TASK_FUNCTIONS = []
 
@@ -186,8 +189,15 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
 
-    # 1. Update TOC (Discover new chapters)
-    await upsert_fiction_toc(db, book, dm)
+    # 1. Update TOC (best-effort — do not abort download if source is unreachable)
+    try:
+        await upsert_fiction_toc(db, book, dm)
+    except Exception as exc:
+        logger.warning(
+            "TOC refresh failed for book %s, proceeding with cached data: %s",
+            book.id,
+            exc,
+        )
 
     # 2. Identify missing chapters
     arq_pool = ctx["redis"]
