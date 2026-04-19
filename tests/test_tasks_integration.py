@@ -29,7 +29,7 @@ def test_download_book_endpoint_schedules_task(
 
     user = (
         db_session.query(models.User)
-        # .filter_by(auth_subject="test-user-sub-123")
+        .filter_by(auth_subject="test-user-sub-123")
         .first()
     )
     assert user is not None

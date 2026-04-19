@@ -52,7 +52,7 @@ class UserOut(BaseModel):
 
 
 class DeviceConfig(BaseModel):
-    kindle_email: str | None = None
+    kindle_email: EmailStr | None = None
 
 
 class Token(BaseModel):

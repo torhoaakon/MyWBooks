@@ -76,6 +76,47 @@ def db_session() -> Iterator[Session]:
         db.close()
 
 
+def _make_user_claims(sub: str, email: str) -> dict:
+    return {
+        "sub": sub,
+        "email": email,
+        "iss": "https://test-issuer.example/auth/v1",
+        "aud": "authenticated",
+        "role": "authenticated",
+    }
+
+
+@pytest.fixture
+def make_client():
+    """Return a factory that creates a TestClient authenticated as any user.
+
+    The fixture restores the original verify_jwt override after the test so
+    the session-scoped `client` fixture is unaffected.
+    """
+    from unittest.mock import AsyncMock
+
+    from mywbooks import db as db_module
+    from mywbooks.api.auth import verify_jwt
+
+    saved = app.dependency_overrides.get(verify_jwt)
+
+    def _factory(sub: str, email: str | None = None) -> TestClient:
+        email = email or f"{sub}@test.example"
+        mock_arq = MagicMock(spec=ArqRedis)
+        mock_arq.enqueue_job = AsyncMock(return_value=None)
+        claims = _make_user_claims(sub, email)
+        app.dependency_overrides[db_module.get_db] = _test_get_db
+        app.dependency_overrides[verify_jwt] = lambda: claims
+        app.dependency_overrides[get_arq_pool] = lambda: mock_arq
+        return TestClient(app)
+
+    yield _factory
+
+    # Restore the session-scoped user after the test
+    if saved is not None:
+        app.dependency_overrides[verify_jwt] = saved
+
+
 @pytest.fixture
 def mock_arq_pool():
     mock = MagicMock(spec=ArqRedis)
