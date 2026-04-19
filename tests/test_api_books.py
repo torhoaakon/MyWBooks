@@ -65,6 +65,39 @@ def test_add_royalroad_book_by_url(client, db_session: Session, monkeypatch):
     assert rel is not None
 
 
+def test_add_royalroad_book_by_fiction_id(client, db_session: Session, monkeypatch):
+    b = models.Book(
+        provider=models.ProviderKey.ROYALROAD,
+        provider_fiction_uid="royalroad:55555",
+        source_url="https://www.royalroad.com/fiction/55555",
+        title="Fiction ID Book",
+        author="Author Y",
+        language="en",
+    )
+    db_session.add(b)
+    db_session.commit()
+    db_session.refresh(b)
+    created_id = b.id
+
+    captured_url = {}
+
+    from mywbooks.services import ingest
+    from mywbooks.api import deps
+
+    async def _fake_func(db, url, dm):
+        captured_url["url"] = url
+        return created_id
+
+    client.app.dependency_overrides[deps.get_dm] = lambda: None
+    monkeypatch.setattr(ingest, "upsert_royalroad_book_from_url", _fake_func)
+
+    resp = client.post("/api/books/royalroad", json={"fiction_id": 55555})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["id"] == created_id
+    # Verify the correct URL was synthesised from the fiction_id
+    assert captured_url["url"] == "https://www.royalroad.com/fiction/55555"
+
+
 def test_add_royalroad_requires_one_of_url_or_fiction_id(client):
     # Missing both -> pydantic model validation should fail with 422
     resp = client.post("/api/books/royalroad", json={})
