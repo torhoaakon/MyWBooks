@@ -70,7 +70,9 @@ class RoyalRoadProvider(Provider):
         [_, _id] = uid.split(":", 1)
         return f"https://www.royalroad.com/fiction/{_id}"
 
-    async def discover_fiction(self, dm: AsyncDownloadManager, fiction_url: Url) -> Fiction:
+    async def discover_fiction(
+        self, dm: AsyncDownloadManager, fiction_url: Url, *, ignore_cache: bool = False
+    ) -> Fiction:
 
         uid = self.fiction_uid_from_url(str(fiction_url))
         if not uid:
@@ -78,7 +80,7 @@ class RoyalRoadProvider(Provider):
 
         fiction_url = Url(self.fiction_url_from_uid(uid))
 
-        data = await dm.get_and_cache_data(fiction_url)
+        data = await dm.get_and_cache_data(fiction_url, ignore_cache=ignore_cache)
         html = data.decode("utf-8")
         meta, chapter_entries = _parse_fiction_page(str(fiction_url), html, strict=True)
 

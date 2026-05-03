@@ -14,13 +14,13 @@ from ..providers import Provider, ProviderKey, get_provider_by_key
 
 
 async def upsert_royalroad_book_from_url(
-    db: Session, fiction_url: Url | str, dm: AsyncDownloadManager
+    db: Session, fiction_url: Url | str, dm: AsyncDownloadManager, *, ignore_cache: bool = False
 ) -> int:
     prov: Provider = get_provider_by_key(ProviderKey.ROYALROAD)
 
     # TODO: Combine with upsert_fiction_toc
 
-    fic: Fiction = await prov.discover_fiction(dm, Url(str(fiction_url)))
+    fic: Fiction = await prov.discover_fiction(dm, Url(str(fiction_url)), ignore_cache=ignore_cache)
 
     book_id = _upsert_book_meta(
         db,

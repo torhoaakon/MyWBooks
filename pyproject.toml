@@ -25,6 +25,7 @@ dependencies = [
     "aiosmtplib>=5.0.0",
     "authx>=1.5.2",
     "argon2-cffi>=25.1.0",
+    "requests>=2.33.1",
 ]
 
 [build-system]

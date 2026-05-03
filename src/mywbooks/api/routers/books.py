@@ -399,6 +399,57 @@ def unsubscribe_book(
     return ResponseMsg(ok=True)
 
 
+@router.post("/{book_id}/refresh", response_model=BookDetailOut)
+async def refresh_book(
+    book_id: int,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+    dm: AsyncDownloadManager = Depends(get_dm),
+) -> BookDetailOut:
+    """Re-fetch the fiction page to pick up new chapters and updated metadata."""
+    local_user = get_or_create_user_by_sub(db, user)
+
+    book = db.get(models.Book, book_id)
+    if not book:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == local_user.id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    await ingest.upsert_royalroad_book_from_url(db, book.source_url, dm, ignore_cache=True)
+
+    db.refresh(book)
+    chapter_count: int = (
+        db.execute(
+            select(func.count()).select_from(models.Chapter).where(
+                models.Chapter.book_id == book_id
+            )
+        ).scalar()
+        or 0
+    )
+    user_options = DownloadOptions(**(link.download_options or {}))
+    return BookDetailOut(
+        id=book.id,
+        provider=book.provider.value if hasattr(book.provider, "value") else str(book.provider),
+        source_url=book.source_url,
+        title=book.title,
+        author=book.author,
+        language=book.language,
+        cover_url=book.cover_url,
+        description=book.description,
+        tags=book.tags,
+        chapter_count=chapter_count,
+        user_options=user_options,
+    )
+
+
 # TODO: Here there should be some more generate config
 @router.post("/{book_id}/download")
 async def download_book_now(

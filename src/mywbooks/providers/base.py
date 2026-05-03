@@ -53,7 +53,9 @@ class Provider(ABC):
 
     # Discover metadata + ToC from a fiction page
     @abstractmethod
-    async def discover_fiction(self, dm: AsyncDownloadManager, fiction_url: Url) -> Fiction: ...
+    async def discover_fiction(
+        self, dm: AsyncDownloadManager, fiction_url: Url, *, ignore_cache: bool = False
+    ) -> Fiction: ...
 
     # Extract a chapter’s title+content from its page
     @abstractmethod
