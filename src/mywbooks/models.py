@@ -153,6 +153,8 @@ class Chapter(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow())
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_fetched: Mapped[bool] = mapped_column(Boolean)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     book: Mapped[Book] = relationship(back_populates="chapters")
 
@@ -225,6 +227,7 @@ class SendBookTaskPayload(BaseModel):
     recipient_email: str
     book_path: str
     book_title: str
+    chapter_ids: Optional[list[int]] = None
 
 
 class TaskStatus(StrEnum):

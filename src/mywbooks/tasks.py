@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Concatenate
 from arq.connections import ArqRedis
 from pydantic_core import Url
 from sqlalchemy import select as _select
+from sqlalchemy import update as _update
 from sqlalchemy.orm import Session
 
 from mywbooks.book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig, make_epub_filename
@@ -259,6 +260,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
 
     if payload.send_by_email:
         payload.send_by_email.book_path = str(out_path)
+        payload.send_by_email.chapter_ids = payload.chapters  # for delivered_at tracking
 
         await schedule_task(
             db,
@@ -282,6 +284,15 @@ async def send_book_task(ctx: CtxType, db: Session, task: Task) -> None:
         ebook_path=Path(payload.book_path),
         book_title=payload.book_title,
     )
+
+    # Mark chapters as delivered
+    if payload.chapter_ids:
+        db.execute(
+            _update(Chapter)
+            .where(Chapter.id.in_(payload.chapter_ids))
+            .values(delivered_at=utcnow())
+        )
+        db.commit()
 
 
 # ####

@@ -69,9 +69,10 @@ class BookOut(BaseModel):
     author: Optional[str] = None
     language: Optional[str] = None
     cover_url: Optional[str] = None
+    new_chapter_count: int = 0
 
     @classmethod
-    def from_model(cls, b: models.Book) -> "BookOut":
+    def from_model(cls, b: models.Book, new_chapter_count: int = 0) -> "BookOut":
         return cls(
             id=b.id,
             provider=(
@@ -83,6 +84,7 @@ class BookOut(BaseModel):
             author=b.author,
             language=b.language,
             cover_url=b.cover_url,
+            new_chapter_count=new_chapter_count,
         )
 
 
@@ -115,6 +117,8 @@ class ChapterOut(BaseModel):
     is_fetched: bool
     fetched_at: datetime | None = None
     created_at: datetime
+    delivered_at: datetime | None = None
+    dismissed_at: datetime | None = None
 
 
 class ChaptersPage(BaseModel):
@@ -198,7 +202,23 @@ def list_my_books(user: CurrentUser, db: Session = Depends(get_db)) -> list[Book
         .order_by(models.Book.title.asc())
     )
     rows = db.execute(q).scalars().all()
-    return [BookOut.from_model(b) for b in rows]
+
+    # Compute new chapter counts in one query
+    book_ids = [b.id for b in rows]
+    new_counts: dict[int, int] = {}
+    if book_ids:
+        count_rows = db.execute(
+            select(models.Chapter.book_id, func.count().label("cnt"))
+            .where(
+                models.Chapter.book_id.in_(book_ids),
+                models.Chapter.delivered_at.is_(None),
+                models.Chapter.dismissed_at.is_(None),
+            )
+            .group_by(models.Chapter.book_id)
+        ).all()
+        new_counts = {row.book_id: row.cnt for row in count_rows}
+
+    return [BookOut.from_model(b, new_chapter_count=new_counts.get(b.id, 0)) for b in rows]
 
 
 @router.get("/{book_id}", response_model=BookDetailOut)
@@ -300,9 +320,80 @@ def get_book_chapters(
                 is_fetched=ch.is_fetched,
                 fetched_at=ch.fetched_at,
                 created_at=ch.created_at,
+                delivered_at=ch.delivered_at,
+                dismissed_at=ch.dismissed_at,
             )
             for ch in chapters
         ],
+    )
+
+
+@router.post("/{book_id}/chapters/{chapter_id}/dismiss", response_model=ChapterOut)
+def dismiss_chapter(
+    book_id: int,
+    chapter_id: int,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ChapterOut:
+    """Mark a chapter as skipped (dismissed) without sending it."""
+    local_user = get_or_create_user_by_sub(db, user)
+    ch = _get_owned_chapter(db, local_user.id, book_id, chapter_id)
+    from mywbooks.utils import utcnow
+    ch.dismissed_at = utcnow()
+    db.commit()
+    db.refresh(ch)
+    return _chapter_out(ch)
+
+
+@router.post("/{book_id}/chapters/{chapter_id}/undismiss", response_model=ChapterOut)
+def undismiss_chapter(
+    book_id: int,
+    chapter_id: int,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ChapterOut:
+    """Clear the dismissed state so the chapter shows as new again."""
+    local_user = get_or_create_user_by_sub(db, user)
+    ch = _get_owned_chapter(db, local_user.id, book_id, chapter_id)
+    ch.dismissed_at = None
+    db.commit()
+    db.refresh(ch)
+    return _chapter_out(ch)
+
+
+def _get_owned_chapter(
+    db: Session, user_id: int, book_id: int, chapter_id: int
+) -> models.Chapter:
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == user_id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    ch = db.execute(
+        select(models.Chapter).where(
+            models.Chapter.id == chapter_id,
+            models.Chapter.book_id == book_id,
+        )
+    ).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+    return ch
+
+
+def _chapter_out(ch: models.Chapter) -> ChapterOut:
+    return ChapterOut(
+        id=ch.id,
+        index=ch.index,
+        title=ch.title,
+        is_fetched=ch.is_fetched,
+        fetched_at=ch.fetched_at,
+        created_at=ch.created_at,
+        delivered_at=ch.delivered_at,
+        dismissed_at=ch.dismissed_at,
     )
 
 
