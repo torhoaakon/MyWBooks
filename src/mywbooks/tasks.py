@@ -7,9 +7,10 @@ from typing import Any, Awaitable, Callable, Concatenate
 
 from arq.connections import ArqRedis
 from pydantic_core import Url
+from sqlalchemy import select as _select
 from sqlalchemy.orm import Session
 
-from mywbooks.book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig
+from mywbooks.book import DEFAULT_COVER_URL, EPUB_DIR, BookConfig, make_epub_filename
 from mywbooks.ebook_generator import EbookGeneratorConfig, ExtractOptions
 from mywbooks.email_sender import send_ebook_email
 from mywbooks.task_cleanup import register_cleanup
@@ -187,7 +188,22 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     dm: AsyncDownloadManager = ctx["dm"]
     out_dir = EPUB_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"book-{book.id}-task-{task.id}.epub"
+
+    # Resolve chapter indices to build a meaningful filename
+    if payload.chapters:
+        indices = db.execute(
+            _select(Chapter.index).where(Chapter.id.in_(payload.chapters))
+        ).scalars().all()
+    else:
+        indices = db.execute(
+            _select(Chapter.index).where(Chapter.book_id == book.id)
+        ).scalars().all()
+    first_idx = min(indices) + 1 if indices else 1
+    last_idx = max(indices) + 1 if indices else 1
+
+    book_title = payload.title or book.title or f"book-{book.id}"
+    epub_name = make_epub_filename(book_title, first_idx, last_idx)
+    out_path = out_dir / epub_name
 
     # 1. Update TOC (best-effort — do not abort download if source is unreachable)
     try:

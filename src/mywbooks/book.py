@@ -15,6 +15,22 @@ from .utils import url_hash
 DEFAULT_COVER_URL = Url("https://www.royalroad.com/favicon.ico")
 EPUB_DIR = Path("var/epubs").absolute()
 
+_UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|]')
+
+
+def make_epub_filename(title: str, first_index: int, last_index: int) -> str:
+    """Return a safe EPUB filename derived from the book title and chapter range.
+
+    Format: "{title} - Ch. {first}.epub"  (single chapter)
+            "{title} - Ch. {first}–{last}.epub"  (range)
+    """
+    safe_title = _UNSAFE_CHARS.sub("_", title).strip()[:60].rstrip()
+    if first_index == last_index:
+        chapter_part = f"Ch. {first_index}"
+    else:
+        chapter_part = f"Ch. {first_index}\u2013{last_index}"
+    return f"{safe_title} - {chapter_part}.epub"
+
 
 ImageID = str
 
