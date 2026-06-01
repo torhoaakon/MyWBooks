@@ -27,6 +27,60 @@ def test_chapter_extractor_finds_title_and_content():
     assert "<p>First paragraph.</p>" in html
 
 
+HIDDEN_PARA_HTML = """
+<html>
+  <head>
+    <style>.xAbCdEf { display: none; }</style>
+  </head>
+  <body>
+    <div class="chapter-content">
+      <h1>Chapter 1</h1>
+      <p>Real content.</p>
+      <p class="xAbCdEf">This content is stolen from Royal Road. If you're reading this, it has been stolen. Please support the author.</p>
+    </div>
+  </body>
+</html>
+"""
+
+HEADLESS_HTML = """
+<html>
+  <body>
+    <div class="chapter-content">
+      <h1>Chapter 1</h1>
+      <p>Real content.</p>
+      <p class="xAbCdEf">Stolen paragraph — no head tag to parse classes from.</p>
+    </div>
+  </body>
+</html>
+"""
+
+
+def test_hidden_stolen_content_paragraph_is_removed():
+    extractor = RoyalRoadChapterPageExtractor()
+    soup = BeautifulSoup(HIDDEN_PARA_HTML, "lxml")
+    page = extractor.extract_chapter(soup)
+    assert page is not None
+    html = str(page.content)
+    assert "stolen" not in html.lower()
+    assert "Real content." in html
+
+
+def test_hidden_paragraph_not_present_when_no_hidden_classes():
+    extractor = RoyalRoadChapterPageExtractor()
+    soup = BeautifulSoup(CHAPTER_HTML, "lxml")
+    page = extractor.extract_chapter(soup)
+    assert page is not None
+    assert "First paragraph." in str(page.content)
+
+
+def test_headless_page_does_not_raise():
+    extractor = RoyalRoadChapterPageExtractor()
+    soup = BeautifulSoup(HEADLESS_HTML, "lxml")
+    page = extractor.extract_chapter(soup)
+    assert page is not None
+    assert "Real content." in str(page.content)
+
+
 def test_rr_extractor_strict_error_includes_url():
     from mywbooks.ebook_generator import ExtractOptions
     from mywbooks.providers.royalroad import (

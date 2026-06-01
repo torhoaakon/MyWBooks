@@ -199,17 +199,16 @@ class RoyalRoadChapterPageExtractor(ChapterPageExtractor):
                 else:
                     title = "Untitled Chapter"
 
-        # TODO: We also need to do this:
-        # hidden_class_names = self.identify_hiddden_class_names(soup)
-        # self.dispose_hidden_elements(hidden_class_names, inner_content)
+        hidden_class_names = self.identify_hiddden_class_names(page_content_bs)
+        self.dispose_hidden_elements(hidden_class_names, content_node)
 
         return ChapterPageContent(title=title, content=content_node)
 
     def identify_hiddden_class_names(self, bs: BeautifulSoup) -> list[str]:
         hidden_class_names: list[str] = []
 
-        # TODO: replace this assert
-        assert bs.head is not None
+        if bs.head is None:
+            return []
 
         for style_tag in bs.head.find_all("style"):
             css_content = style_tag.get_text()
