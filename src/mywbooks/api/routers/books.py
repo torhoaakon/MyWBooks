@@ -487,6 +487,19 @@ def get_book_tasks(
         .order_by(models.Task.created_at.desc())
     ).all()
 
+    def _send_task_info(send_task_id: int | None) -> dict | None:
+        if not send_task_id:
+            return None
+        st = db.get(models.Task, send_task_id)
+        if not st:
+            return None
+        return {
+            "id": st.id,
+            "status": st.status,
+            "finished_at": st.finished_at.isoformat() if st.finished_at else None,
+            "error": st.error,
+        }
+
     return [
         {
             "id": t.id,
@@ -494,6 +507,7 @@ def get_book_tasks(
             "status": t.status,
             "book_id": book_id,
             "payload": t.payload,
+            "send_task": _send_task_info((t.payload or {}).get("send_task_id")),
             "error": t.error,
             "created_at": t.created_at.isoformat(),
             "started_at": t.started_at.isoformat() if t.started_at else None,

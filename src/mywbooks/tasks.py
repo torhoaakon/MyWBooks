@@ -283,13 +283,14 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
         else:
             payload.send_by_email.chapter_ids = effective_chapter_ids
 
-        await schedule_task(
+        send_task = await schedule_task(
             db,
             arq_pool,
             TaskType.SEND_BOOK,
             task.user_id,
             payload.send_by_email.model_dump(),
         )
+        payload.send_task_id = send_task.id
 
     payload.output_path = str(out_path)
     task.payload = payload.model_dump()

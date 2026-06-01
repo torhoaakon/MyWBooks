@@ -222,6 +222,7 @@ class DownloadBookTaskPayload(BaseModel):
 
     # Output
     output_path: Optional[str] = None
+    send_task_id: Optional[int] = None
 
 
 class SendBookTaskPayload(BaseModel):
