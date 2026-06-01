@@ -274,7 +274,14 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
 
     if payload.send_by_email:
         payload.send_by_email.book_path = str(out_path)
-        payload.send_by_email.chapter_ids = effective_chapter_ids  # for delivered_at tracking
+        # Resolve None ("all chapters") to a concrete list so delivered_at is set correctly
+        if effective_chapter_ids is None:
+            all_ids = db.execute(
+                _select(Chapter.id).where(Chapter.book_id == book.id)
+            ).scalars().all()
+            payload.send_by_email.chapter_ids = list(all_ids)
+        else:
+            payload.send_by_email.chapter_ids = effective_chapter_ids
 
         await schedule_task(
             db,
