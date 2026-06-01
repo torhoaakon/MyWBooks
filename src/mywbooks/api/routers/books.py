@@ -336,6 +336,68 @@ def get_book_chapters(
     )
 
 
+class BulkDismissBody(BaseModel):
+    chapter_ids: list[int]
+
+
+def _assert_book_owned(db: Session, user_id: int, book_id: int) -> None:
+    link = db.execute(
+        select(models.BookUser).where(
+            models.BookUser.user_id == user_id,
+            models.BookUser.book_id == book_id,
+            models.BookUser.in_library == True,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+
+@router.post("/{book_id}/chapters/bulk-dismiss", response_model=list[ChapterOut])
+def bulk_dismiss_chapters(
+    book_id: int,
+    body: BulkDismissBody,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> list[ChapterOut]:
+    """Mark multiple chapters as skipped in a single request."""
+    from mywbooks.utils import utcnow
+    local_user = get_or_create_user_by_sub(db, user)
+    _assert_book_owned(db, local_user.id, book_id)
+    chapters = db.execute(
+        select(models.Chapter).where(
+            models.Chapter.book_id == book_id,
+            models.Chapter.id.in_(body.chapter_ids),
+        )
+    ).scalars().all()
+    now = utcnow()
+    for ch in chapters:
+        ch.dismissed_at = now
+    db.commit()
+    return [_chapter_out(ch) for ch in chapters]
+
+
+@router.post("/{book_id}/chapters/bulk-undismiss", response_model=list[ChapterOut])
+def bulk_undismiss_chapters(
+    book_id: int,
+    body: BulkDismissBody,
+    user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> list[ChapterOut]:
+    """Clear dismissed state on multiple chapters in a single request."""
+    local_user = get_or_create_user_by_sub(db, user)
+    _assert_book_owned(db, local_user.id, book_id)
+    chapters = db.execute(
+        select(models.Chapter).where(
+            models.Chapter.book_id == book_id,
+            models.Chapter.id.in_(body.chapter_ids),
+        )
+    ).scalars().all()
+    for ch in chapters:
+        ch.dismissed_at = None
+    db.commit()
+    return [_chapter_out(ch) for ch in chapters]
+
+
 @router.post("/{book_id}/chapters/{chapter_id}/dismiss", response_model=ChapterOut)
 def dismiss_chapter(
     book_id: int,
@@ -372,15 +434,7 @@ def undismiss_chapter(
 def _get_owned_chapter(
     db: Session, user_id: int, book_id: int, chapter_id: int
 ) -> models.Chapter:
-    link = db.execute(
-        select(models.BookUser).where(
-            models.BookUser.user_id == user_id,
-            models.BookUser.book_id == book_id,
-            models.BookUser.in_library == True,  # noqa: E712
-        )
-    ).scalar_one_or_none()
-    if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    _assert_book_owned(db, user_id, book_id)
     ch = db.execute(
         select(models.Chapter).where(
             models.Chapter.id == chapter_id,
