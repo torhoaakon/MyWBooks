@@ -190,10 +190,24 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     out_dir = EPUB_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve chapter indices to build a meaningful filename
+    # Resolve the effective chapter id list
     if payload.chapters:
+        effective_chapter_ids: list[int] | None = payload.chapters
+    elif payload.excluded_chapters:
+        rows = db.execute(
+            _select(Chapter.id).where(
+                Chapter.book_id == book.id,
+                ~Chapter.id.in_(payload.excluded_chapters),
+            )
+        ).scalars().all()
+        effective_chapter_ids = list(rows)
+    else:
+        effective_chapter_ids = None  # all chapters
+
+    # Resolve chapter indices to build a meaningful filename
+    if effective_chapter_ids is not None:
         indices = db.execute(
-            _select(Chapter.index).where(Chapter.id.in_(payload.chapters))
+            _select(Chapter.index).where(Chapter.id.in_(effective_chapter_ids))
         ).scalars().all()
     else:
         indices = db.execute(
@@ -222,7 +236,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
         db,
         book.id,
         arq_pool,
-        chapters_by_id=payload.chapters,
+        chapters_by_id=effective_chapter_ids,
         max_retries=30,
         check_completion_sleep_delay=5,
     )
@@ -254,13 +268,13 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
         book,
         dm=dm,
         cfg=EbookGeneratorConfig(book_config=bcfg, **overrides),
-        chapter_list=payload.chapters or None,
+        chapter_list=effective_chapter_ids,
         out_path=out_path,
     )
 
     if payload.send_by_email:
         payload.send_by_email.book_path = str(out_path)
-        payload.send_by_email.chapter_ids = payload.chapters  # for delivered_at tracking
+        payload.send_by_email.chapter_ids = effective_chapter_ids  # for delivered_at tracking
 
         await schedule_task(
             db,

@@ -41,23 +41,18 @@ class AddRoyalRoadBody(BaseModel):
 
 
 class DownloadBookNowBody(BaseModel):
-    chapters: list[int] | None = (
-        None  # This is referring to the chapter id.  TODO:  We could enable custom order
-    )
+    chapters: list[int] | None = None          # explicit list; None = all
+    excluded_chapters: list[int] | None = None  # used with chapters=None to mean "all except"
 
     title: Optional[str] = None
     cover_img: Optional[str] = None
     author: Optional[str] = None
     description: Optional[str] = None  # Ignore for now
-    # May add more meta
 
     include_images: Optional[bool] = None
     include_chapter_titles: Optional[bool] = None
     image_resize_max: Optional[int] = None
     epub_css_filepath: Optional[str] = None
-
-    # On finished
-    # send_by_email: Optional[bool]  TODO
 
 
 class BookOut(BaseModel):
