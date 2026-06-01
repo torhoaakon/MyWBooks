@@ -107,6 +107,7 @@ class BookDetailOut(BaseModel):
     description: str | None = None
     tags: list[str] | None = None
     chapter_count: int
+    new_chapter_count: int = 0
     user_options: DownloadOptions
 
 
@@ -251,6 +252,17 @@ def get_book_detail(
         or 0
     )
 
+    new_chapter_count: int = (
+        db.execute(
+            select(func.count()).select_from(models.Chapter).where(
+                models.Chapter.book_id == book_id,
+                models.Chapter.delivered_at.is_(None),
+                models.Chapter.dismissed_at.is_(None),
+            )
+        ).scalar()
+        or 0
+    )
+
     user_options = DownloadOptions(**(link.download_options or {}))
 
     return BookDetailOut(
@@ -264,6 +276,7 @@ def get_book_detail(
         description=book.description,
         tags=book.tags,
         chapter_count=chapter_count,
+        new_chapter_count=new_chapter_count,
         user_options=user_options,
     )
 
@@ -525,6 +538,16 @@ async def refresh_book(
         ).scalar()
         or 0
     )
+    new_chapter_count: int = (
+        db.execute(
+            select(func.count()).select_from(models.Chapter).where(
+                models.Chapter.book_id == book_id,
+                models.Chapter.delivered_at.is_(None),
+                models.Chapter.dismissed_at.is_(None),
+            )
+        ).scalar()
+        or 0
+    )
     user_options = DownloadOptions(**(link.download_options or {}))
     return BookDetailOut(
         id=book.id,
@@ -537,6 +560,7 @@ async def refresh_book(
         description=book.description,
         tags=book.tags,
         chapter_count=chapter_count,
+        new_chapter_count=new_chapter_count,
         user_options=user_options,
     )
 

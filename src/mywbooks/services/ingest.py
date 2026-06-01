@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from pydantic_core import Url
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +14,8 @@ from ..book import BookConfig, ChapterRef
 from ..models import Book, Chapter
 from ..providers import Provider, ProviderKey, get_provider_by_key
 
+logger = logging.getLogger(__name__)
+
 
 async def upsert_royalroad_book_from_url(
     db: Session, fiction_url: Url | str, dm: AsyncDownloadManager, *, ignore_cache: bool = False
@@ -21,6 +25,13 @@ async def upsert_royalroad_book_from_url(
     # TODO: Combine with upsert_fiction_toc
 
     fic: Fiction = await prov.discover_fiction(dm, Url(str(fiction_url)), ignore_cache=ignore_cache)
+
+    logger.info(
+        "discover_fiction(%s, ignore_cache=%s) → %d chapter refs",
+        fiction_url,
+        ignore_cache,
+        len(fic.chapter_refs),
+    )
 
     book_id = _upsert_book_meta(
         db,
@@ -95,6 +106,7 @@ def _upsert_chapter_index_from_refs(
 ) -> None:
     """Insert/update Chapter rows with provider_chapter_id + URL only."""
 
+    inserted = 0
     for idx, ref in enumerate(refs):
         existing = db.execute(
             select(Chapter).where(
@@ -115,9 +127,16 @@ def _upsert_chapter_index_from_refs(
                     is_fetched=False,
                 )
             )
+            inserted += 1
         else:
             existing.index = idx
             if ref.title:
                 existing.title = ref.title
             existing.source_url = str(ref.url)
     db.commit()
+    logger.info(
+        "upsert_chapter_index book_id=%d: %d refs processed, %d new chapters inserted",
+        book_id,
+        len(refs),
+        inserted,
+    )
