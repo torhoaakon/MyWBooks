@@ -53,6 +53,7 @@ class UserOut(BaseModel):
 
 class DeviceConfig(BaseModel):
     kindle_email: EmailStr | None = None
+    sender_email: str | None = None
 
 
 class Token(BaseModel):
@@ -201,8 +202,12 @@ async def get_device_config(
     user: CurrentUser, db: Session = Depends(get_db)
 ) -> DeviceConfig:
     """Return the current user's device delivery configuration."""
+    import os
     local_user = get_or_create_user_by_sub(db, user)
-    return DeviceConfig(kindle_email=local_user.kindle_email)
+    return DeviceConfig(
+        kindle_email=local_user.kindle_email,
+        sender_email=os.getenv("SMTP_USER") or None,
+    )
 
 
 @router.put("/device", response_model=DeviceConfig)
