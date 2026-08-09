@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +14,7 @@ from .async_download_manager import AsyncDownloadManager
 from .utils import url_hash
 
 DEFAULT_COVER_URL = Url("https://www.royalroad.com/favicon.ico")
-EPUB_DIR = Path("var/epubs").absolute()
+EPUB_DIR = Path(os.getenv("EPUB_DIR", "var/epubs")).absolute()
 
 _UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|]')
 

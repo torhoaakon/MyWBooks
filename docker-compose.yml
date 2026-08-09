@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    restart: unless-stopped
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: sqlite:////data/mywbooks.db
+      CACHE_DIR: /data/cache
+      EPUB_DIR: /data/epubs
+    volumes:
+      - data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["arq", "mywbooks.worker.WorkerSettings"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: sqlite:////data/mywbooks.db
+      CACHE_DIR: /data/cache
+      EPUB_DIR: /data/epubs
+    volumes:
+      - data:/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  maintenance:
+    build: .
+    command: ["python", "-m", "mywbooks.maintenance.cleanup", "loop"]
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/mywbooks.db
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+volumes:
+  data:

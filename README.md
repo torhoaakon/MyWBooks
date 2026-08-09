@@ -82,15 +82,35 @@ Then visit:
 
 You can deploy on your own server (e.g., Oracle Cloud Ubuntu instance):
 
-- **Backend:** Run the FastAPI app (via `uvicorn` or systemd).
-- **Frontend:** [/frontend](https://github.com/torhoaakon/MyWBooks-page)  Build with SvelteKit and serve static files through Nginx.
-- **Routing:** Proxy API requests to `/api/...` via Nginx.
+- **Backend:** Runs as four Docker Compose services (`api`, `worker`, `maintenance`, `redis`) instead of systemd units — see below.
+- **Frontend:** [/frontend](https://github.com/torhoaakon/MyWBooks-page) Build with SvelteKit and serve static files through Nginx, same as local development. The frontend is *not* containerized.
+- **Routing:** Nginx (on the host) proxies `/api/...` to the `api` container on `127.0.0.1:8000`.
 
-Example Nginx snippet:
+### Backend via Docker Compose
+
+```bash
+cd api
+cp .env.example .env   # fill in AUTHX_SECRET_KEY, SUPABASE_*, SMTP_* etc.
+docker compose up -d --build
+```
+
+This builds one image (`api/Dockerfile`) and runs it as three services (`api`,
+`worker`, `maintenance`) plus a `redis` service, matching the four processes
+in the `Procfile`. The SQLite DB and the EPUB/cache directories live on a
+shared named volume (`data`) so they survive `docker compose down`/`up`.
+`DATABASE_URL`, `CACHE_DIR`, `EPUB_DIR` and `REDIS_URL` are wired by
+`docker-compose.yml` itself — only secrets (auth, SMTP) need to go in `.env`.
+
+The `api` service publishes port 8000 on the host, same as running uvicorn
+directly — Nginx proxies to it exactly as before.
+
+Example Nginx snippet (note: no trailing slash on `proxy_pass` — the app's
+routes are mounted under `/api`, so the prefix must be preserved, not
+stripped):
 
 ```nginx
 location /api/ {
-    proxy_pass http://127.0.0.1:8000/;
+    proxy_pass http://127.0.0.1:8000;
 }
 ```
 
