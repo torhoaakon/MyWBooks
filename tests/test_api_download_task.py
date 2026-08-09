@@ -4,6 +4,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import quote
 
 import pytest
 from sqlalchemy.orm import Session
@@ -139,6 +140,30 @@ def test_task_download_returns_file(client, db_session):
     assert r.headers["content-type"] == "application/epub+zip"
 
     Path(epub_path).unlink(missing_ok=True)
+
+
+def test_task_download_uses_on_disk_filename(client, db_session):
+    """T-078: the Content-Disposition filename must match the file actually
+    on disk (built via make_epub_filename), not a re-derived generic name —
+    it's what shows up on the reading device, so it must match send-to-device."""
+    user = _get_or_create_user(db_session)
+    book = _create_book(db_session, "dl-file-2")
+    add_book_to_user(db_session, user.id, book.id)
+
+    from mywbooks.book import EPUB_DIR, make_epub_filename
+    epub_name = make_epub_filename(book.title, 1, 12)
+    epub_path = EPUB_DIR / epub_name
+    epub_path.write_bytes(b"fake epub content")
+
+    task = _create_task(db_session, user, book, models.TaskStatus.SUCCEEDED, str(epub_path))
+
+    r = client.get(f"/api/books/tasks/{task.id}/download")
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    assert quote(epub_name) in cd
+    assert f"{book.title}-{book.id}.epub" not in cd
+
+    epub_path.unlink(missing_ok=True)
 
 
 def test_task_download_not_found(client, db_session):

@@ -867,18 +867,10 @@ def download_book_for_task(
             status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
         )
 
-    # Optional nicer filename based on book title
-    book: models.Book | None = db.get(models.Book, book_id)
-    if book and book.title:
-        safe_title = "".join(
-            c for c in book.title if c.isalnum() or c in (" ", "_", "-")
-        )
-        filename = f"{safe_title or 'book'}-{book.id}.epub"
-    else:
-        filename = path.name
-
+    # Use the on-disk filename as-is — it's already built via make_epub_filename
+    # (same format used for send-to-device attachments) when the task ran.
     return FileResponse(
         path,
         media_type="application/epub+zip",
-        filename=filename,
+        filename=path.name,
     )
