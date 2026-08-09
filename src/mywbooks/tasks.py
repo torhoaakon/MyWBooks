@@ -194,25 +194,35 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     if payload.chapters:
         effective_chapter_ids: list[int] | None = payload.chapters
     elif payload.excluded_chapters:
-        rows = db.execute(
-            _select(Chapter.id).where(
-                Chapter.book_id == book.id,
-                ~Chapter.id.in_(payload.excluded_chapters),
+        rows = (
+            db.execute(
+                _select(Chapter.id).where(
+                    Chapter.book_id == book.id,
+                    ~Chapter.id.in_(payload.excluded_chapters),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         effective_chapter_ids = list(rows)
     else:
         effective_chapter_ids = None  # all chapters
 
     # Resolve chapter indices to build a meaningful filename
     if effective_chapter_ids is not None:
-        indices = db.execute(
-            _select(Chapter.index).where(Chapter.id.in_(effective_chapter_ids))
-        ).scalars().all()
+        indices = (
+            db.execute(
+                _select(Chapter.index).where(Chapter.id.in_(effective_chapter_ids))
+            )
+            .scalars()
+            .all()
+        )
     else:
-        indices = db.execute(
-            _select(Chapter.index).where(Chapter.book_id == book.id)
-        ).scalars().all()
+        indices = (
+            db.execute(_select(Chapter.index).where(Chapter.book_id == book.id))
+            .scalars()
+            .all()
+        )
     first_idx = min(indices) + 1 if indices else 1
     last_idx = max(indices) + 1 if indices else 1
 
@@ -276,9 +286,11 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
         payload.send_by_email.book_path = str(out_path)
         # Resolve None ("all chapters") to a concrete list so delivered_at is set correctly
         if effective_chapter_ids is None:
-            all_ids = db.execute(
-                _select(Chapter.id).where(Chapter.book_id == book.id)
-            ).scalars().all()
+            all_ids = (
+                db.execute(_select(Chapter.id).where(Chapter.book_id == book.id))
+                .scalars()
+                .all()
+            )
             payload.send_by_email.chapter_ids = list(all_ids)
         else:
             payload.send_by_email.chapter_ids = effective_chapter_ids

@@ -132,7 +132,9 @@ async def login_user(body: UserLoginBody, db: Session = Depends(get_db)) -> Toke
     )
     refresh_token = authx.create_refresh_token(uid=user.auth_subject)
 
-    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+    return Token(
+        access_token=access_token, refresh_token=refresh_token, token_type="bearer"
+    )
 
 
 class RefreshBody(BaseModel):
@@ -145,10 +147,14 @@ class AccessToken(BaseModel):
 
 
 @router.post("/refresh", response_model=AccessToken)
-async def refresh_access_token(body: RefreshBody, db: Session = Depends(get_db)) -> AccessToken:
+async def refresh_access_token(
+    body: RefreshBody, db: Session = Depends(get_db)
+) -> AccessToken:
     """Exchange a valid refresh token for a new access token."""
     try:
-        req_token = RequestToken(token=body.refresh_token, type="refresh", location="headers")
+        req_token = RequestToken(
+            token=body.refresh_token, type="refresh", location="headers"
+        )
         payload = authx.verify_token(req_token, verify_type=True)
     except Exception:
         raise HTTPException(
@@ -190,9 +196,7 @@ async def set_kindle_email(
 
 
 @router.get("/profile", response_model=UserOut)
-async def get_user_profile(
-    user: CurrentUser, db: Session = Depends(get_db)
-) -> UserOut:
+async def get_user_profile(user: CurrentUser, db: Session = Depends(get_db)) -> UserOut:
     local_user = get_or_create_user_by_sub(db, user)
     return UserOut.model_validate(local_user)
 
@@ -203,6 +207,7 @@ async def get_device_config(
 ) -> DeviceConfig:
     """Return the current user's device delivery configuration."""
     import os
+
     local_user = get_or_create_user_by_sub(db, user)
     return DeviceConfig(
         kindle_email=local_user.kindle_email,

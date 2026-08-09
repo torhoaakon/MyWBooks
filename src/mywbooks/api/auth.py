@@ -121,8 +121,8 @@ def verify_jwt(cred: HTTPAuthorizationCredentials = Depends(bearer)) -> UserClai
             except Exception as e:
                 # If Supabase also fails, raise an error
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED, 
-                    detail=f"Invalid token: {e}"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Invalid token: {e}",
                 )
         else:
             # If Supabase isn't enabled and local failed, raise error

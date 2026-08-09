@@ -75,7 +75,10 @@ def me(user: CurrentUser) -> dict[str, Any]:
 
 
 from fastapi.responses import RedirectResponse
+
 ...
+
+
 @api_router.get("/profile", deprecated=True)
 def profile_deprecated() -> RedirectResponse:
     return RedirectResponse(url="/api/user/profile")

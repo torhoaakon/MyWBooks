@@ -90,11 +90,13 @@ class AsyncDownloadManager:
                 return await self.read_valid_cache_file(cache_filename)
 
         host = url.host or "unknown"
-        
+
         if host not in self.domain_semaphores:
-            self.domain_semaphores[host] = asyncio.Semaphore(self.max_concurrent_per_host)
+            self.domain_semaphores[host] = asyncio.Semaphore(
+                self.max_concurrent_per_host
+            )
             self.domain_timestamp_locks[host] = asyncio.Lock()
-        
+
         sem = self.domain_semaphores[host]
         ts_lock = self.domain_timestamp_locks[host]
 
@@ -104,11 +106,11 @@ class AsyncDownloadManager:
                 now = asyncio.get_event_loop().time()
                 last_time = self.domain_last_request.get(host, 0)
                 wait_time = max(0, self.default_cooldown - (now - last_time))
-                
+
                 # Advance the last_request time as if we started after the wait
                 # This ensures the next task in line waits for its own cooldown
                 self.domain_last_request[host] = now + wait_time
-            
+
             if wait_time > 0:
                 # logging.info(f"Rate limiting {host}: waiting {wait_time:.2f}s to start")
                 await asyncio.sleep(wait_time)
@@ -121,7 +123,7 @@ class AsyncDownloadManager:
             base_delay = 2.0
             for attempt in range(max_retries):
                 response = await self.client.get(str(url))
-                
+
                 if response.status_code == 429:
                     delay = base_delay * (2**attempt)
                     sys.stderr.write(

@@ -41,8 +41,10 @@ class AddRoyalRoadBody(BaseModel):
 
 
 class DownloadBookNowBody(BaseModel):
-    chapters: list[int] | None = None          # explicit list; None = all
-    excluded_chapters: list[int] | None = None  # used with chapters=None to mean "all except"
+    chapters: list[int] | None = None  # explicit list; None = all
+    excluded_chapters: list[int] | None = (
+        None  # used with chapters=None to mean "all except"
+    )
 
     title: Optional[str] = None
     cover_img: Optional[str] = None
@@ -214,7 +216,9 @@ def list_my_books(user: CurrentUser, db: Session = Depends(get_db)) -> list[Book
         ).all()
         new_counts = {row.book_id: row.cnt for row in count_rows}
 
-    return [BookOut.from_model(b, new_chapter_count=new_counts.get(b.id, 0)) for b in rows]
+    return [
+        BookOut.from_model(b, new_chapter_count=new_counts.get(b.id, 0)) for b in rows
+    ]
 
 
 @router.get("/{book_id}", response_model=BookDetailOut)
@@ -226,7 +230,9 @@ def get_book_detail(
 
     book = db.get(models.Book, book_id)
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
     link = db.execute(
         select(models.BookUser).where(
@@ -236,20 +242,24 @@ def get_book_detail(
         )
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
     chapter_count: int = (
         db.execute(
-            select(func.count()).select_from(models.Chapter).where(
-                models.Chapter.book_id == book_id
-            )
+            select(func.count())
+            .select_from(models.Chapter)
+            .where(models.Chapter.book_id == book_id)
         ).scalar()
         or 0
     )
 
     new_chapter_count: int = (
         db.execute(
-            select(func.count()).select_from(models.Chapter).where(
+            select(func.count())
+            .select_from(models.Chapter)
+            .where(
                 models.Chapter.book_id == book_id,
                 models.Chapter.delivered_at.is_(None),
                 models.Chapter.dismissed_at.is_(None),
@@ -262,7 +272,11 @@ def get_book_detail(
 
     return BookDetailOut(
         id=book.id,
-        provider=book.provider.value if hasattr(book.provider, "value") else str(book.provider),
+        provider=(
+            book.provider.value
+            if hasattr(book.provider, "value")
+            else str(book.provider)
+        ),
         source_url=book.source_url,
         title=book.title,
         author=book.author,
@@ -296,13 +310,15 @@ def get_book_chapters(
         )
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
     total: int = (
         db.execute(
-            select(func.count()).select_from(models.Chapter).where(
-                models.Chapter.book_id == book_id
-            )
+            select(func.count())
+            .select_from(models.Chapter)
+            .where(models.Chapter.book_id == book_id)
         ).scalar()
         or 0
     )
@@ -349,7 +365,9 @@ def _assert_book_owned(db: Session, user_id: int, book_id: int) -> None:
         )
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
 
 @router.post("/{book_id}/chapters/bulk-dismiss", response_model=list[ChapterOut])
@@ -361,14 +379,19 @@ def bulk_dismiss_chapters(
 ) -> list[ChapterOut]:
     """Mark multiple chapters as skipped in a single request."""
     from mywbooks.utils import utcnow
+
     local_user = get_or_create_user_by_sub(db, user)
     _assert_book_owned(db, local_user.id, book_id)
-    chapters = db.execute(
-        select(models.Chapter).where(
-            models.Chapter.book_id == book_id,
-            models.Chapter.id.in_(body.chapter_ids),
+    chapters = (
+        db.execute(
+            select(models.Chapter).where(
+                models.Chapter.book_id == book_id,
+                models.Chapter.id.in_(body.chapter_ids),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     now = utcnow()
     for ch in chapters:
         ch.dismissed_at = now
@@ -386,12 +409,16 @@ def bulk_undismiss_chapters(
     """Clear dismissed state on multiple chapters in a single request."""
     local_user = get_or_create_user_by_sub(db, user)
     _assert_book_owned(db, local_user.id, book_id)
-    chapters = db.execute(
-        select(models.Chapter).where(
-            models.Chapter.book_id == book_id,
-            models.Chapter.id.in_(body.chapter_ids),
+    chapters = (
+        db.execute(
+            select(models.Chapter).where(
+                models.Chapter.book_id == book_id,
+                models.Chapter.id.in_(body.chapter_ids),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for ch in chapters:
         ch.dismissed_at = None
     db.commit()
@@ -409,6 +436,7 @@ def dismiss_chapter(
     local_user = get_or_create_user_by_sub(db, user)
     ch = _get_owned_chapter(db, local_user.id, book_id, chapter_id)
     from mywbooks.utils import utcnow
+
     ch.dismissed_at = utcnow()
     db.commit()
     db.refresh(ch)
@@ -442,7 +470,9 @@ def _get_owned_chapter(
         )
     ).scalar_one_or_none()
     if not ch:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found"
+        )
     return ch
 
 
@@ -476,7 +506,9 @@ def get_book_tasks(
         )
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
     tasks = db.scalars(
         select(models.Task)
@@ -535,7 +567,9 @@ def save_book_options(
         )
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
     link.download_options = body.model_dump()
     db.commit()
@@ -578,7 +612,9 @@ async def refresh_book(
 
     book = db.get(models.Book, book_id)
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
     link = db.execute(
         select(models.BookUser).where(
@@ -588,22 +624,28 @@ async def refresh_book(
         )
     ).scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
 
-    await ingest.upsert_royalroad_book_from_url(db, book.source_url, dm, ignore_cache=True)
+    await ingest.upsert_royalroad_book_from_url(
+        db, book.source_url, dm, ignore_cache=True
+    )
 
     db.refresh(book)
     chapter_count: int = (
         db.execute(
-            select(func.count()).select_from(models.Chapter).where(
-                models.Chapter.book_id == book_id
-            )
+            select(func.count())
+            .select_from(models.Chapter)
+            .where(models.Chapter.book_id == book_id)
         ).scalar()
         or 0
     )
     new_chapter_count: int = (
         db.execute(
-            select(func.count()).select_from(models.Chapter).where(
+            select(func.count())
+            .select_from(models.Chapter)
+            .where(
                 models.Chapter.book_id == book_id,
                 models.Chapter.delivered_at.is_(None),
                 models.Chapter.dismissed_at.is_(None),
@@ -614,7 +656,11 @@ async def refresh_book(
     user_options = DownloadOptions(**(link.download_options or {}))
     return BookDetailOut(
         id=book.id,
-        provider=book.provider.value if hasattr(book.provider, "value") else str(book.provider),
+        provider=(
+            book.provider.value
+            if hasattr(book.provider, "value")
+            else str(book.provider)
+        ),
         source_url=book.source_url,
         title=book.title,
         author=book.author,
@@ -711,7 +757,7 @@ async def send_book_to_device(
     # The worker checks for `send_by_email` and dispatches the email task automatically.
     payload["send_by_email"] = {
         "recipient_email": local_user.kindle_email,
-        "book_path": "",   # worker fills this in after generating the EPUB
+        "book_path": "",  # worker fills this in after generating the EPUB
         "book_title": "",  # worker fills this in
     }
 

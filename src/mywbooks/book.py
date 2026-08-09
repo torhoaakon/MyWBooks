@@ -70,10 +70,10 @@ class Image:
         # We might want to remove it later or keep it for non-async parts.
         if self.image_data is not None:
             return self.image_data
-        
-        # It's hard to call async from sync. 
-        # For now, let's just make it return None or raise if we are in sync land 
-        # but the manager is async. 
+
+        # It's hard to call async from sync.
+        # For now, let's just make it return None or raise if we are in sync land
+        # but the manager is async.
         # Actually, let's just use asyncio.run if absolutely needed, but better to use the async version.
         return None
 

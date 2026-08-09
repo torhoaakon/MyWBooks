@@ -81,8 +81,8 @@ def test_add_royalroad_book_by_fiction_id(client, db_session: Session, monkeypat
 
     captured_url = {}
 
-    from mywbooks.services import ingest
     from mywbooks.api import deps
+    from mywbooks.services import ingest
 
     async def _fake_func(db, url, dm):
         captured_url["url"] = url

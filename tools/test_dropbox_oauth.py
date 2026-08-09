@@ -96,9 +96,12 @@ def exchange_code(code: str) -> dict:
 
 
 def get_account(access_token: str) -> dict:
-    resp = requests.post(ACCOUNT_URL, headers={
-        "Authorization": f"Bearer {access_token}",
-    })
+    resp = requests.post(
+        ACCOUNT_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -108,7 +111,9 @@ def upload_test_file(access_token: str) -> dict:
         UPLOAD_URL,
         headers={
             "Authorization": f"Bearer {access_token}",
-            "Dropbox-API-Arg": '{"path": "' + TEST_FILE_PATH + '", "mode": "overwrite"}',
+            "Dropbox-API-Arg": '{"path": "'
+            + TEST_FILE_PATH
+            + '", "mode": "overwrite"}',
             "Content-Type": "application/octet-stream",
         },
         data=b"MyWBooks Dropbox OAuth2 test file. Safe to delete.",
@@ -156,7 +161,9 @@ def main():
 
     print("\nFetching account info...")
     account = get_account(access_token)
-    print(f"  Account       : {account.get('name', {}).get('display_name')} ({account.get('email')})")
+    print(
+        f"  Account       : {account.get('name', {}).get('display_name')} ({account.get('email')})"
+    )
 
     print(f"\nUploading test file to {TEST_FILE_PATH} ...")
     meta = upload_test_file(access_token)

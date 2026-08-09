@@ -7,6 +7,7 @@ Dry run by default — pass --apply to actually write changes to the DB.
 Usage:
     uv run python tools/clean_hidden_paragraphs.py [--db-path PATH] [--cache-dir DIR] [--apply] [--limit N]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -63,7 +64,11 @@ def make_session(db_path: str | None) -> Session:
 def main() -> None:
     args = parse_args()
 
-    cache_dir = Path(args.cache_dir) if args.cache_dir else Path(os.getenv("CACHE_DIR", "./cache"))
+    cache_dir = (
+        Path(args.cache_dir)
+        if args.cache_dir
+        else Path(os.getenv("CACHE_DIR", "./cache"))
+    )
     if not cache_dir.is_dir():
         raise SystemExit(f"Cache dir not found: {cache_dir}")
 
@@ -120,7 +125,9 @@ def main() -> None:
 
         updated += 1
         verb = "UPDATE" if args.apply else "WOULD UPDATE"
-        print(f"{verb}  chapter={chapter.id} book_id={chapter.book_id} url={chapter.source_url}")
+        print(
+            f"{verb}  chapter={chapter.id} book_id={chapter.book_id} url={chapter.source_url}"
+        )
         if args.apply:
             chapter.content_html = new_html
 
@@ -132,7 +139,10 @@ def main() -> None:
     print()
     print(f"candidates (royalroad, is_fetched):  {len(candidates)}")
     print(f"processed:                           {processed}")
-    print(f"updated:                              {updated}" + ("" if args.apply else "  (dry run — rerun with --apply to write)"))
+    print(
+        f"updated:                              {updated}"
+        + ("" if args.apply else "  (dry run — rerun with --apply to write)")
+    )
     print(f"unchanged:                            {unchanged}")
     print(f"skipped (no cache file):              {skipped_no_cache}")
     print(f"failed:                               {failed}")

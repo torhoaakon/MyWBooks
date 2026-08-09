@@ -4,6 +4,7 @@ Every book/task/device endpoint that is scoped to the authenticated user must
 return 404 (or 403 for the download endpoint) when a different user attempts
 to access it — even if they know the resource ID.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -21,7 +22,9 @@ USER2_SUB = "user2-sub-bbb"
 
 
 def _create_user(db: Session, sub: str) -> models.User:
-    user = models.User(auth_provider="local", auth_subject=sub, email=f"{sub}@test.example")
+    user = models.User(
+        auth_provider="local", auth_subject=sub, email=f"{sub}@test.example"
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -97,7 +100,14 @@ def test_save_options_other_user_returns_404(make_client, db_session):
     add_book_to_user(db_session, user1.id, book.id)
 
     c2 = make_client(USER2_SUB + "opt")
-    r = c2.put(f"/api/books/{book.id}/options", json={"include_images": False, "include_chapter_titles": True, "include_description": False})
+    r = c2.put(
+        f"/api/books/{book.id}/options",
+        json={
+            "include_images": False,
+            "include_chapter_titles": True,
+            "include_description": False,
+        },
+    )
     assert r.status_code == 404
 
 

@@ -1,4 +1,5 @@
 """Tests for download body options, task download, and send_by_email endpoints."""
+
 from __future__ import annotations
 
 import tempfile
@@ -22,6 +23,7 @@ TEST_SUB = "test-user-sub-123"  # must match the session-scoped client fixture
 
 def _get_or_create_user(db: Session) -> models.User:
     from sqlalchemy import select
+
     user = db.execute(
         select(models.User).where(
             models.User.auth_provider == "local",
@@ -29,7 +31,9 @@ def _get_or_create_user(db: Session) -> models.User:
         )
     ).scalar_one_or_none()
     if not user:
-        user = models.User(auth_provider="local", auth_subject=TEST_SUB, email="tester@example.com")
+        user = models.User(
+            auth_provider="local", auth_subject=TEST_SUB, email="tester@example.com"
+        )
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -78,17 +82,22 @@ def _create_task(
 # ---------------------------------------------------------------------------
 
 
-def test_download_with_body_options_stored_in_payload(client, db_session, mock_arq_pool):
+def test_download_with_body_options_stored_in_payload(
+    client, db_session, mock_arq_pool
+):
     user = _get_or_create_user(db_session)
     book = _create_book(db_session, "dl-opts-1")
     add_book_to_user(db_session, user.id, book.id)
 
-    r = client.post(f"/api/books/{book.id}/download", json={
-        "chapters": [1, 2, 3],
-        "title": "Custom Title",
-        "cover_img": "https://example.com/cover.jpg",
-        "include_images": False,
-    })
+    r = client.post(
+        f"/api/books/{book.id}/download",
+        json={
+            "chapters": [1, 2, 3],
+            "title": "Custom Title",
+            "cover_img": "https://example.com/cover.jpg",
+            "include_images": False,
+        },
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["ok"] is True
@@ -129,6 +138,7 @@ def test_task_download_returns_file(client, db_session):
     add_book_to_user(db_session, user.id, book.id)
 
     from mywbooks.book import EPUB_DIR
+
     with tempfile.NamedTemporaryFile(suffix=".epub", dir=EPUB_DIR, delete=False) as f:
         f.write(b"fake epub content")
         epub_path = f.name
@@ -151,11 +161,14 @@ def test_task_download_uses_on_disk_filename(client, db_session):
     add_book_to_user(db_session, user.id, book.id)
 
     from mywbooks.book import EPUB_DIR, make_epub_filename
+
     epub_name = make_epub_filename(book.title, 1, 12)
     epub_path = EPUB_DIR / epub_name
     epub_path.write_bytes(b"fake epub content")
 
-    task = _create_task(db_session, user, book, models.TaskStatus.SUCCEEDED, str(epub_path))
+    task = _create_task(
+        db_session, user, book, models.TaskStatus.SUCCEEDED, str(epub_path)
+    )
 
     r = client.get(f"/api/books/tasks/{task.id}/download")
     assert r.status_code == 200
@@ -187,8 +200,12 @@ def test_task_download_missing_output_file(client, db_session):
     add_book_to_user(db_session, user.id, book.id)
 
     from mywbooks.book import EPUB_DIR
+
     task = _create_task(
-        db_session, user, book, models.TaskStatus.SUCCEEDED,
+        db_session,
+        user,
+        book,
+        models.TaskStatus.SUCCEEDED,
         str(EPUB_DIR / "nonexistent-file.epub"),
     )
 
@@ -219,7 +236,9 @@ def test_send_by_email_queued_task_updates_payload(client, db_session, mock_arq_
     assert task.payload["send_by_email"]["recipient_email"] == "test@kindle.com"
 
 
-def test_send_by_email_succeeded_task_queues_send_task(client, db_session, mock_arq_pool):
+def test_send_by_email_succeeded_task_queues_send_task(
+    client, db_session, mock_arq_pool
+):
     user = _get_or_create_user(db_session)
     user.kindle_email = "test@kindle.com"
     db_session.commit()
@@ -228,6 +247,7 @@ def test_send_by_email_succeeded_task_queues_send_task(client, db_session, mock_
     add_book_to_user(db_session, user.id, book.id)
 
     from mywbooks.book import EPUB_DIR
+
     with tempfile.NamedTemporaryFile(suffix=".epub", dir=EPUB_DIR, delete=False) as f:
         f.write(b"epub")
         epub_path = f.name
@@ -244,7 +264,9 @@ def test_send_by_email_succeeded_task_queues_send_task(client, db_session, mock_
     Path(epub_path).unlink(missing_ok=True)
 
 
-def test_send_by_email_succeeded_task_links_send_task_id(client, db_session, mock_arq_pool):
+def test_send_by_email_succeeded_task_links_send_task_id(
+    client, db_session, mock_arq_pool
+):
     """T-077: the downloads tab joins send status via payload.send_task_id, so
     sending a plain (never-before-sent) completed download must persist the
     new send task's id back onto the download task's payload."""
@@ -256,6 +278,7 @@ def test_send_by_email_succeeded_task_links_send_task_id(client, db_session, moc
     add_book_to_user(db_session, user.id, book.id)
 
     from mywbooks.book import EPUB_DIR
+
     with tempfile.NamedTemporaryFile(suffix=".epub", dir=EPUB_DIR, delete=False) as f:
         f.write(b"epub")
         epub_path = f.name

@@ -1,5 +1,6 @@
 # tests/test_api_device.py
 """Tests for GET/PUT /user/device endpoints."""
+
 from __future__ import annotations
 
 from sqlalchemy import select

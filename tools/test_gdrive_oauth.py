@@ -74,28 +74,37 @@ def build_auth_url() -> str:
 
 
 def exchange_code(code: str) -> dict:
-    resp = requests.post(TOKEN_URL, data={
-        "code": code,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-        "grant_type": "authorization_code",
-    })
+    resp = requests.post(
+        TOKEN_URL,
+        data={
+            "code": code,
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "redirect_uri": REDIRECT_URI,
+            "grant_type": "authorization_code",
+        },
+    )
     resp.raise_for_status()
     return resp.json()
 
 
 def list_files(access_token: str) -> list:
-    resp = requests.get(FILES_URL, headers={
-        "Authorization": f"Bearer {access_token}",
-    }, params={"pageSize": 5, "fields": "files(id,name,mimeType)"})
+    resp = requests.get(
+        FILES_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        params={"pageSize": 5, "fields": "files(id,name,mimeType)"},
+    )
     resp.raise_for_status()
     return resp.json().get("files", [])
 
 
 def main():
     print("\n=== Google Drive OAuth2 Test ===\n")
-    print("Make sure http://localhost:8000/api/user/gdrive/callback is in your OAuth client's")
+    print(
+        "Make sure http://localhost:8000/api/user/gdrive/callback is in your OAuth client's"
+    )
     print("Authorised redirect URIs in Google Cloud Console.\n")
     print("Opening browser for authorisation...")
 
@@ -121,7 +130,9 @@ def main():
         for f in files:
             print(f"  {f['id']}  {f['mimeType']:<40}  {f['name']}")
     else:
-        print("  (no files visible yet — expected for a fresh app with drive.file scope)")
+        print(
+            "  (no files visible yet — expected for a fresh app with drive.file scope)"
+        )
 
     print("\n✓ All checks passed. Credentials are working.\n")
 

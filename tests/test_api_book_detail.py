@@ -1,5 +1,6 @@
 # tests/test_api_book_detail.py
 """Tests for the book detail, chapters, tasks, options, and send endpoints."""
+
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -7,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from mywbooks import models
 from mywbooks.library import add_book_to_user
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -222,9 +222,13 @@ def test_save_options_persists(client, db_session):
 
     resp = client.put(
         f"/api/books/{book.id}/options",
-        json={"include_images": False, "include_chapter_titles": True,
-              "include_description": False, "custom_title": "My Title",
-              "custom_cover_url": None},
+        json={
+            "include_images": False,
+            "include_chapter_titles": True,
+            "include_description": False,
+            "custom_title": "My Title",
+            "custom_cover_url": None,
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
@@ -241,9 +245,13 @@ def test_save_options_not_subscribed_returns_404(client, db_session):
 
     resp = client.put(
         f"/api/books/{book.id}/options",
-        json={"include_images": True, "include_chapter_titles": True,
-              "include_description": False, "custom_title": None,
-              "custom_cover_url": None},
+        json={
+            "include_images": True,
+            "include_chapter_titles": True,
+            "include_description": False,
+            "custom_title": None,
+            "custom_cover_url": None,
+        },
     )
     assert resp.status_code == 404
 

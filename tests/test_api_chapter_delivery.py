@@ -3,6 +3,7 @@
 Covers: dismiss/undismiss endpoints, new_chapter_count on book list,
 and cross-user protection for dismiss endpoints.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -20,6 +21,7 @@ _uid_counter = iter(range(10_000, 20_000))
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_book(db_session: Session, uid: str) -> models.Book:
     book = models.Book(
         provider=models.ProviderKey.ROYALROAD,
@@ -35,7 +37,9 @@ def _make_book(db_session: Session, uid: str) -> models.Book:
     return book
 
 
-def _make_chapter(db_session: Session, book_id: int, index: int, **kwargs) -> models.Chapter:
+def _make_chapter(
+    db_session: Session, book_id: int, index: int, **kwargs
+) -> models.Chapter:
     ch = models.Chapter(
         book_id=book_id,
         index=index,
@@ -55,14 +59,19 @@ def _make_chapter(db_session: Session, book_id: int, index: int, **kwargs) -> mo
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def setup(client: TestClient, db_session: Session):
     """One book owned by the default test user with three chapters."""
     from mywbooks.api.auth import get_or_create_user_by_sub
-    user = get_or_create_user_by_sub(db_session, {
-        "sub": "test-user-sub-123",
-        "email": "tester@example.com",
-    })
+
+    user = get_or_create_user_by_sub(
+        db_session,
+        {
+            "sub": "test-user-sub-123",
+            "email": "tester@example.com",
+        },
+    )
     book = _make_book(db_session, f"delivery-{next(_uid_counter)}")
     add_book_to_user(db_session, user.id, book.id)
     ch1 = _make_chapter(db_session, book.id, 0)
@@ -75,6 +84,7 @@ def setup(client: TestClient, db_session: Session):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_new_chapter_count_excludes_delivered(client: TestClient, setup):
     book = setup["book"]
     resp = client.get("/api/books")
@@ -84,7 +94,9 @@ def test_new_chapter_count_excludes_delivered(client: TestClient, setup):
     assert book_data["new_chapter_count"] == 2
 
 
-def test_new_chapter_count_excludes_dismissed(client: TestClient, db_session: Session, setup):
+def test_new_chapter_count_excludes_dismissed(
+    client: TestClient, db_session: Session, setup
+):
     book = setup["book"]
     ch2 = setup["ch2"]
     ch2.dismissed_at = utcnow()

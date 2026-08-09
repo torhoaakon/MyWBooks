@@ -7,8 +7,8 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup, Tag
 from pydantic_core import Url
 
-from mywbooks.book import BookConfig, ChapterRef
 from mywbooks.async_download_manager import AsyncDownloadManager
+from mywbooks.book import BookConfig, ChapterRef
 from mywbooks.ebook_generator import (
     ChapterPageContent,
     ChapterPageExtractor,

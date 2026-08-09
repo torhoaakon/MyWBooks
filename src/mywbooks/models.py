@@ -201,8 +201,10 @@ class TaskType(StrEnum):
 
 class DownloadBookTaskPayload(BaseModel):
     book_id: int
-    chapters: Optional[list[int]] = None          # explicit list; None = all
-    excluded_chapters: Optional[list[int]] = None  # used with chapters=None to mean "all except"
+    chapters: Optional[list[int]] = None  # explicit list; None = all
+    excluded_chapters: Optional[list[int]] = (
+        None  # used with chapters=None to mean "all except"
+    )
 
     # Metadata overrides
     title: Optional[str] = None

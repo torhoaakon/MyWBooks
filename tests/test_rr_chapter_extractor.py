@@ -1,5 +1,6 @@
 import pytest
 from bs4 import BeautifulSoup
+
 from mywbooks.providers.royalroad import RoyalRoadChapterPageExtractor
 
 CHAPTER_HTML = """
