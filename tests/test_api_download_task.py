@@ -219,6 +219,36 @@ def test_send_by_email_succeeded_task_queues_send_task(client, db_session, mock_
     Path(epub_path).unlink(missing_ok=True)
 
 
+def test_send_by_email_succeeded_task_links_send_task_id(client, db_session, mock_arq_pool):
+    """T-077: the downloads tab joins send status via payload.send_task_id, so
+    sending a plain (never-before-sent) completed download must persist the
+    new send task's id back onto the download task's payload."""
+    user = _get_or_create_user(db_session)
+    user.kindle_email = "test@kindle.com"
+    db_session.commit()
+
+    book = _create_book(db_session, "sbe-link-1")
+    add_book_to_user(db_session, user.id, book.id)
+
+    from mywbooks.book import EPUB_DIR
+    with tempfile.NamedTemporaryFile(suffix=".epub", dir=EPUB_DIR, delete=False) as f:
+        f.write(b"epub")
+        epub_path = f.name
+
+    task = _create_task(db_session, user, book, models.TaskStatus.SUCCEEDED, epub_path)
+    assert task.payload.get("send_task_id") is None
+
+    r = client.get(f"/api/books/tasks/{task.id}/send_by_email")
+    assert r.status_code == 200
+    email_task_id = r.json()["task_id"]
+
+    db_session.refresh(task)
+    assert task.payload.get("send_task_id") == email_task_id
+    assert task.payload.get("send_by_email") is not None
+
+    Path(epub_path).unlink(missing_ok=True)
+
+
 def test_send_by_email_failed_task_returns_406(client, db_session, mock_arq_pool):
     user = _get_or_create_user(db_session)
     user.kindle_email = "test@kindle.com"

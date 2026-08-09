@@ -795,6 +795,13 @@ async def send_download_by_email(
             payload=new_payload.model_dump(),
         )
 
+        # Link the new send task back onto the download task so the downloads
+        # tab (which joins send status via payload.send_task_id) picks it up.
+        payload.send_by_email = new_payload
+        payload.send_task_id = email_task.id
+        task.payload = payload.model_dump()
+        db.commit()
+
         return SendByEmailResponse(
             ok=True, task_id=email_task.id, task_status=email_task.status
         )
