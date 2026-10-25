@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.message import EmailMessage
 from functools import lru_cache
 from pathlib import Path
 
@@ -36,6 +34,34 @@ def get_smtp() -> smtp_settings:
     return smtp_settings(host, int(port), user, pswd)  # type: ignore
 
 
+def build_ebook_email(
+    *,
+    sender: str,
+    recipient_email: str,
+    file_content: bytes,
+    filename: str,
+    book_title: str,
+) -> EmailMessage:
+    """
+    Build the ebook email. EmailMessage (default policy) encodes non-ASCII
+    filenames per RFC 2231 (filename*=utf-8''...). Hand-writing the
+    Content-Disposition header made Python RFC 2047-encode the whole header,
+    which Amazon's Send to Kindle silently rejects.
+    """
+    msg = EmailMessage()
+    msg["Subject"] = f"Your ebook: {book_title}"
+    msg["From"] = sender
+    msg["To"] = recipient_email
+    msg.set_content("Please find your ebook attached.")
+    msg.add_attachment(
+        file_content,
+        maintype="application",
+        subtype="epub+zip",
+        filename=filename,
+    )
+    return msg
+
+
 async def send_ebook_email(
     recipient_email: str,
     ebook_path: Path,
@@ -47,21 +73,16 @@ async def send_ebook_email(
 
     cfg = get_smtp()
 
-    msg = MIMEMultipart()
-    msg["Subject"] = f"Your ebook: {book_title}"
-    msg["From"] = cfg.user or ""
-    msg["To"] = recipient_email
-
-    # Attach a simple body
-    msg.attach(MIMEText("Please find your ebook attached.", "plain"))
-
-    # Attach the ebook
     async with await anyio.open_file(ebook_path, "rb") as f:
         file_content = await f.read()
-        part = MIMEApplication(file_content, Name=ebook_path.name)
 
-    part["Content-Disposition"] = f'attachment; filename="{ebook_path.name}"'
-    msg.attach(part)
+    msg = build_ebook_email(
+        sender=cfg.user,
+        recipient_email=recipient_email,
+        file_content=file_content,
+        filename=ebook_path.name,
+        book_title=book_title,
+    )
 
     # Send the email asynchronously
     await aiosmtplib.send(

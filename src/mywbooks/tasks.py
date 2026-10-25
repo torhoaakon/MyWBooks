@@ -284,6 +284,7 @@ async def download_book_task(ctx: CtxType, db: Session, task: Task) -> None:
 
     if payload.send_by_email:
         payload.send_by_email.book_path = str(out_path)
+        payload.send_by_email.book_title = book_title
         # Resolve None ("all chapters") to a concrete list so delivered_at is set correctly
         if effective_chapter_ids is None:
             all_ids = (
@@ -316,7 +317,8 @@ async def send_book_task(ctx: CtxType, db: Session, task: Task) -> None:
     await send_ebook_email(
         recipient_email=payload.recipient_email,
         ebook_path=Path(payload.book_path),
-        book_title=payload.book_title,
+        # "Send again" doesn't know the title; the filename carries it
+        book_title=payload.book_title or Path(payload.book_path).stem,
     )
 
     # Mark chapters as delivered
