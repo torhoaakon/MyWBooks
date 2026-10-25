@@ -84,7 +84,7 @@ You can deploy on your own server (e.g., Oracle Cloud Ubuntu instance):
 
 - **Backend:** Runs as four Docker Compose services (`api`, `worker`, `maintenance`, `redis`) instead of systemd units — see below.
 - **Frontend:** [/frontend](https://github.com/torhoaakon/MyWBooks-page) Build with SvelteKit and serve static files through Nginx, same as local development. The frontend is *not* containerized.
-- **Routing:** Nginx (on the host) proxies `/api/...` to the `api` container on `127.0.0.1:8000`.
+- **Routing:** Nginx (on the host) proxies `/api/...` to the `api` container on `127.0.0.1:8181`.
 
 ### Backend via Docker Compose
 
@@ -101,8 +101,8 @@ shared named volume (`data`) so they survive `docker compose down`/`up`.
 `DATABASE_URL`, `CACHE_DIR`, `EPUB_DIR` and `REDIS_URL` are wired by
 `docker-compose.yml` itself — only secrets (auth, SMTP) need to go in `.env`.
 
-The `api` service publishes port 8000 on the host, same as running uvicorn
-directly — Nginx proxies to it exactly as before.
+The `api` service publishes container port 8000 on host port 8181, bound to
+`127.0.0.1` only — the API is not reachable from outside except through Nginx.
 
 Example Nginx snippet (note: no trailing slash on `proxy_pass` — the app's
 routes are mounted under `/api`, so the prefix must be preserved, not
@@ -110,7 +110,7 @@ stripped):
 
 ```nginx
 location /api/ {
-    proxy_pass http://127.0.0.1:8000;
+    proxy_pass http://127.0.0.1:8181;
 }
 ```
 
