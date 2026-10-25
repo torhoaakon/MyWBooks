@@ -11,11 +11,11 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from pydantic_core import Url
 
-from mywbooks.utils import url_hash
+from mywbooks.utils import USER_AGENT, url_hash
 
 
 class AsyncDownloadManager:
-    hdrs = {"User-Agent": "Mozilla/5.0"}
+    hdrs = {"User-Agent": USER_AGENT}
 
     def __init__(
         self,
